@@ -1,0 +1,489 @@
+"""
+渐进式技能加载与执行 Harness
+Progressive Skill Loading & Execution Harness
+=============================================
+启动时仅扫描技能元数据（零导入），触发匹配时才渐进式动态加载。
+支持: 技能链 / 热重载 / 执行统计 / 四层记忆 / 自动 Flush
+"""
+
+import importlib.util, json, logging, os, re, sys, time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger("harness")
+
+# ── 终端颜色 ─────────────────────────────────────────────────
+R = "\033[0m"; B = "\033[1m"; C = "\033[36m"; G = "\033[32m"
+Y = "\033[33m"; M = "\033[35m"; E = "\033[31m"; D = "\033[2m"
+
+# ═══════════════════════════════════════════════════════════════
+# 1. 核心类型
+# ═══════════════════════════════════════════════════════════════
+
+@dataclass
+class Manifest:
+    """技能元数据 — 发现阶段即可获取，无需导入模块"""
+    name: str = ""
+    version: str = "1.0.0"
+    description: str = ""
+    author: str = ""
+    triggers: List[str] = field(default_factory=list)
+    keywords: List[str] = field(default_factory=list)
+    dependencies: List[str] = field(default_factory=list)
+    priority: int = 0
+    category: str = "general"
+    examples: List[str] = field(default_factory=list)
+
+@dataclass
+class SkillContext:
+    session_id: str = ""; user_input: str = ""
+    messages: List[Dict] = field(default_factory=list)
+    memory_layers: Dict[str, Any] = field(default_factory=dict)
+    workspace: str = ""
+
+@dataclass
+class SkillResult:
+    """技能执行结果，next_skill 支持技能链"""
+    success: bool = True; content: str = ""
+    error: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    next_skill: Optional[str] = None
+
+@dataclass
+class MemoryLayer:
+    name: str; icon: str; label: str; content: str = ""; char_count: int = 0
+
+# ═══════════════════════════════════════════════════════════════
+# 2. 技能注册表 — 仅扫描 manifest（零导入）
+# ═══════════════════════════════════════════════════════════════
+
+class Registry:
+    """启动时扫描 skills/ 目录，读取所有 manifest，不做任何 import。
+       支持两种定义方式: Python __manifest__ 或 skill.json"""
+
+    def __init__(self, skills_dir: Optional[Path] = None):
+        self.dir = skills_dir or Path(__file__).parent / "skills"
+        self.dir.mkdir(parents=True, exist_ok=True)
+        (self.dir / "__init__.py").touch()
+        self.manifests: Dict[str, Manifest] = {}
+        self._trigger_idx: Dict[str, List[str]] = {}
+        self._discover()
+
+    def _discover(self):
+        self.manifests.clear(); self._trigger_idx.clear()
+        for entry in sorted(self.dir.iterdir()):
+            if not entry.is_dir() or entry.name.startswith("_"): continue
+            mf = self._read_py_manifest(entry) or self._read_json_manifest(entry)
+            if mf:
+                self.manifests[mf.name] = mf
+                for t in mf.triggers + mf.keywords:
+                    self._trigger_idx.setdefault(t.lower(), []).append(mf.name)
+        logger.info(f"注册完成: {len(self.manifests)} 个技能")
+
+    def _read_py_manifest(self, d: Path) -> Optional[Manifest]:
+        """从 __init__.py 或 skill.py 静态提取 __manifest__ 字典"""
+        for fn in ["__init__.py", "skill.py"]:
+            fp = d / fn
+            if not fp.exists(): continue
+            try:
+                src = fp.read_text(encoding="utf-8")
+                mx = re.search(r'__manifest__\s*=\s*(\{.*?\n\})', src, re.DOTALL)
+                if not mx: return None
+                raw = mx.group(1)
+                raw = re.sub(r'\b(?:None|True|False)\b',
+                             lambda t: {"None":"null","True":"true","False":"false"}[t.group()], raw)
+                raw = re.sub(r',\s*}', '}', raw)
+                data = json.loads(raw)
+                data.setdefault("name", d.name)
+                fields = Manifest.__dataclass_fields__
+                return Manifest(**{k: v for k, v in data.items() if k in fields})
+            except Exception as e:
+                logger.warning(f"解析 {d.name} manifest: {e}")
+        return None
+
+    def _read_json_manifest(self, d: Path) -> Optional[Manifest]:
+        fp = d / "skill.json"
+        if not fp.exists(): return None
+        try:
+            data = json.loads(fp.read_text(encoding="utf-8"))
+            data.setdefault("name", d.name)
+            fields = Manifest.__dataclass_fields__
+            return Manifest(**{k: v for k, v in data.items() if k in fields})
+        except Exception: return None
+
+    def match(self, user_input: str, top_k: int = 3) -> List[Tuple[Manifest, float]]:
+        """三级匹配: 精确触发词 → 关键词部分匹配 → 描述语义相似"""
+        inp = user_input.lower()
+        scores: Dict[str, float] = {}
+        # L1: 精确触发词
+        for trigger, names in self._trigger_idx.items():
+            if trigger in inp:
+                for name in names:
+                    m = self.manifests.get(name)
+                    if not m: continue
+                    bonus = 0.3 if trigger in [t.lower() for t in m.triggers] else 0.15
+                    scores[name] = scores.get(name, 0) + 0.6 + len(trigger) * 0.02 + bonus
+        # L2: 关键词部分匹配
+        inp_words = set(re.findall(r'\w+', inp))
+        for name, m in self.manifests.items():
+            for kw in m.keywords:
+                if kw.lower() in inp:
+                    scores[name] = scores.get(name, 0) + 0.25
+                if (inp_words & set(re.findall(r'\w+', kw.lower()))):
+                    scores[name] = scores.get(name, 0) + 0.1
+        # L3: 描述相似度
+        for name, m in self.manifests.items():
+            desc_words = set(re.findall(r'\w+', m.description.lower()))
+            overlap = inp_words & desc_words
+            if overlap:
+                union = inp_words | desc_words
+                scores[name] = scores.get(name, 0) + (len(overlap) / len(union) if union else 0) * 0.3
+        # 优先级加权
+        for name in scores:
+            m = self.manifests.get(name)
+            if m: scores[name] += m.priority * 0.05
+        ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
+        return [(self.manifests[n], s) for n, s in ranked if n in self.manifests and s > 0.15]
+
+    def list_all(self) -> List[Manifest]: return sorted(self.manifests.values(), key=lambda m: (m.category, m.name))
+    def refresh(self): self._discover()
+
+# ═══════════════════════════════════════════════════════════════
+# 3. 渐进式加载器
+# ═══════════════════════════════════════════════════════════════
+
+class Loader:
+    """仅在触发匹配时才进行模块导入，已加载的技能缓存复用"""
+
+    def __init__(self, skills_dir: Path):
+        self.dir = skills_dir
+        self._cache: Dict[str, Any] = {}
+        self._failures: Dict[str, str] = {}
+        self._stats: Dict[str, Dict] = {}  # name → {load_time, call_count, last_used}
+
+    def load(self, m: Manifest) -> Optional[Any]:
+        if m.name in self._cache:
+            s = self._stats[m.name]; s["call_count"] += 1; s["last_used"] = time.time()
+            return self._cache[m.name]
+        if m.name in self._failures:
+            logger.warning(f"[跳过] {m.name}: 之前导入失败"); return None
+        t0 = time.time()
+        for fn in ["__init__.py", "skill.py"]:
+            fp = self.dir / m.name / fn
+            if not fp.exists(): continue
+            try:
+                sub = [str(self.dir / m.name)] if fn == "__init__.py" else None
+                spec = importlib.util.spec_from_file_location(f"skills.{m.name}", fp, submodule_search_locations=sub)
+                mod = importlib.util.module_from_spec(spec)
+                sys.modules[f"skills.{m.name}"] = mod
+                spec.loader.exec_module(mod)
+                if hasattr(mod, "execute"):
+                    elapsed = time.time() - t0
+                    self._cache[m.name] = mod
+                    self._stats[m.name] = {"load_time": elapsed, "call_count": 1, "last_used": time.time()}
+                    logger.info(f"[加载] {m.name} ({elapsed:.3f}s)")
+                    return mod
+            except Exception as e:
+                logger.error(f"[失败] {m.name}: {e}")
+        self._failures[m.name] = "import failed"
+        return None
+
+    def is_loaded(self, n: str) -> bool: return n in self._cache
+    def clear(self): self._cache.clear(); self._failures.clear(); self._stats.clear()
+    def loaded_count(self) -> int: return len(self._cache)
+
+# ═══════════════════════════════════════════════════════════════
+# 4. 技能执行器
+# ═══════════════════════════════════════════════════════════════
+
+class Executor:
+    """组装上下文 → 执行技能 → 记录指标，支持技能链"""
+
+    def __init__(self, loader: Loader, memory_fn: Optional[Callable] = None):
+        self.loader = loader
+        self.memory_fn = memory_fn
+        self.history: List[Dict] = []
+
+    def execute(self, m: Manifest, user_input: str, messages: List[Dict],
+                workspace: str = "") -> SkillResult:
+        mod = self.loader.load(m)
+        if not mod:
+            return SkillResult(success=False, error=f"技能 '{m.name}' 加载失败")
+
+        ctx = SkillContext(
+            session_id=str(time.time_ns()), user_input=user_input,
+            messages=messages, workspace=workspace or str(Path.cwd()),
+        )
+        if self.memory_fn:
+            try: ctx.memory_layers = self.memory_fn()
+            except Exception: pass
+
+        t0 = time.time()
+        try:
+            result = mod.execute(ctx, user_input)
+            if isinstance(result, str): result = SkillResult(success=True, content=result)
+            elif isinstance(result, dict): result = SkillResult(**result)
+            elif not isinstance(result, SkillResult): result = SkillResult(success=True, content=str(result))
+        except Exception as ex:
+            elapsed = time.time() - t0
+            logging.error(f"技能 {m.name} 异常: {ex}", exc_info=True)
+            result = SkillResult(success=False, error=f"{type(ex).__name__}: {ex}",
+                                 metadata={"elapsed": elapsed})
+
+        result.metadata["elapsed"] = time.time() - t0
+        result.metadata["skill"] = m.name
+        self.history.append({"skill": m.name, "success": result.success,
+                             "elapsed": result.metadata["elapsed"],
+                             "input": user_input[:60]})
+        return result
+
+    def stats(self) -> Dict:
+        if not self.history: return {"total": 0}
+        total = len(self.history)
+        ok = sum(1 for e in self.history if e["success"])
+        avg = sum(e["elapsed"] for e in self.history) / total
+        return {"total": total, "success": ok, "failed": total - ok, "avg_time": f"{avg:.3f}s"}
+
+# ═══════════════════════════════════════════════════════════════
+# 5. 四层记忆系统
+# ═══════════════════════════════════════════════════════════════
+
+class Memory:
+    """Layer 1 会话 / Layer 2 近期对话 / Layer 3 (SOUL+USER+AGENTS+MEMORY) / Layer 4 语义检索"""
+
+    def __init__(self, base_dir: Optional[Path] = None):
+        self.dir = base_dir or Path(__file__).parent / "memory"
+        self.dir.mkdir(parents=True, exist_ok=True)
+        defaults = {
+            "SOUL.md": "# 系统人设 (SOUL)\n- 你是一个智能助手，具备渐进式技能加载能力。\n- 你可以根据用户需求动态加载和执行技能。\n- 回答简洁、准确、有帮助。\n",
+            "USER.md": "# 用户画像 (USER)\n- 用户画像将在交互过程中逐步完善。\n",
+            "AGENTS.md": "# 操作规范 (AGENTS)\n- 优先使用技能处理特定领域任务。\n- 保护用户隐私，不泄露敏感信息。\n",
+            "MEMORY.md": "# 长期记忆 (MEMORY)\n- 记忆条目将在 Flush 过程中生成。\n",
+        }
+        for fn, c in defaults.items():
+            fp = self.dir / fn
+            if not fp.exists(): fp.write_text(c, encoding="utf-8")
+
+    def load_layers(self, recent: Optional[List[Dict]] = None) -> List[MemoryLayer]:
+        layers = []
+        specs = [
+            ("soul", "🧠", "Layer 3a  SOUL（人格定义）", "SOUL.md"),
+            ("user_profile", "👤", "Layer 3b  USER（用户画像）", "USER.md"),
+            ("agents_manual", "📋", "Layer 3c  AGENTS（操作规范）", "AGENTS.md"),
+            ("long_term_memory", "💾", "Layer 3d  MEMORY（长期记忆）", "MEMORY.md"),
+        ]
+        for name, icon, label, fn in specs:
+            c = self._read(fn)
+            layers.append(MemoryLayer(name=name, icon=icon, label=label, content=c, char_count=len(c)))
+        if recent:
+            txt = "\n".join(f"{m['role']}: {m['content'][:200]}" for m in recent[-10:])
+            layers.append(MemoryLayer(name="daily_log", icon="🫧", label="Layer 2   近期对话",
+                                      content=txt, char_count=len(txt)))
+        return layers
+
+    def build_prompt(self, recent: Optional[List[Dict]] = None) -> str:
+        parts = []
+        for layer in self.load_layers(recent):
+            if layer.content.strip():
+                parts.append(f"## {layer.label}\n{layer.content.strip()}")
+        return "\n\n".join(parts)
+
+    def flush(self, msgs: List[Dict]) -> Dict:
+        if not msgs: return {"error": "无消息"}
+        entries = [f"- [{time.strftime('%Y-%m-%d')}] {m['content'][:120]}..."
+                   for m in msgs[-20:] if m["role"] == "user" and len(m["content"]) > 30]
+        if entries:
+            fp = self.dir / "MEMORY.md"
+            fp.write_text(fp.read_text(encoding="utf-8") + "\n" + "\n".join(entries), encoding="utf-8")
+        return {"processed": len(msgs), "new_entries": len(entries)}
+
+    def _read(self, fn: str) -> str:
+        fp = self.dir / fn
+        return fp.read_text(encoding="utf-8") if fp.exists() else ""
+
+    def show(self):
+        print(f"\n{C}=== USER.md ==={R}\n{self._read('USER.md')[:1500]}")
+        print(f"\n{C}=== MEMORY.md ==={R}\n{self._read('MEMORY.md')[:2000]}\n")
+
+# ═══════════════════════════════════════════════════════════════
+# 6. 内置技能工厂
+# ═══════════════════════════════════════════════════════════════
+
+def _create_builtins(skills_dir: Path):
+    """自动创建 5 个内置示例技能"""
+
+    skills = [
+        ("code_generator", {
+            "name":"code_generator","version":"1.0.0","description":"根据需求生成/修改/重构代码，支持 Python/JS/HTML/SQL",
+            "author":"Builtin","triggers":["写代码","生成代码","帮我写","实现一个","修复bug","重构","写个函数","code"],
+            "keywords":["python","javascript","html","sql","函数","类","算法","debug","API"],
+            "priority":8,"category":"code","examples":["帮我写快速排序的 Python 实现"]}, "代码生成与重构"),
+        ("file_operator", {
+            "name":"file_operator","version":"1.0.0","description":"文件读写与目录操作：读取、创建、列出文件",
+            "author":"Builtin","triggers":["读文件","写文件","创建文件","列出目录","文件内容","新建文件"],
+            "keywords":["文件","目录","路径","读写","文件夹"],"priority":7,"category":"file",
+            "examples":["读取 test.txt 的内容"]}, "文件与目录操作"),
+        ("shell_executor", {
+            "name":"shell_executor","version":"1.0.0","description":"生成和预览 Shell 命令（不自动执行，需确认）",
+            "author":"Builtin","triggers":["执行命令","运行命令","终端","命令行","shell","cmd"],
+            "keywords":["bash","powershell","终端","命令","pip","npm"],"priority":6,"category":"tool",
+            "examples":["执行 pip install requests"]}, "Shell 命令执行"),
+        ("knowledge_searcher", {
+            "name":"knowledge_searcher","version":"1.0.0","description":"知识检索与查询：搜索、了解、查找信息",
+            "author":"Builtin","triggers":["搜索","查找","检索","查询","了解","什么是","怎么","如何","为什么"],
+            "keywords":["知识","百科","文档","教程","API","最新","资料"],"priority":5,"category":"web",
+            "examples":["搜索 Python 3.12 新特性"]}, "知识检索与查询"),
+        ("data_analyzer", {
+            "name":"data_analyzer","version":"1.0.0","description":"数据分析与可视化：统计、图表、报表生成",
+            "author":"Builtin","triggers":["分析数据","统计","画图","图表","可视化","报表","Excel分析"],
+            "keywords":["pandas","matplotlib","统计","csv","excel","json"],"priority":6,"category":"code",
+            "examples":["分析这个 CSV 文件的销售趋势"]}, "数据分析与可视化"),
+    ]
+    for name, mf, desc in skills:
+        d = skills_dir / name; d.mkdir(parents=True, exist_ok=True)
+        (d / "__init__.py").write_text(f'''"""
+{desc} — 渐进式加载示例技能
+"""
+import platform, pathlib
+
+__manifest__ = {json.dumps(mf, ensure_ascii=False, indent=2)}
+
+def execute(ctx, inp: str):
+    return {{
+        "success": True,
+        "content": f"[{name}] 需求: {{inp[:150]}}",
+        "metadata": {{"mode": "{name}", "workspace": ctx.workspace if hasattr(ctx, "workspace") else ""}},
+    }}
+''', encoding="utf-8")
+
+# ═══════════════════════════════════════════════════════════════
+# 7. 主 Harness
+# ═══════════════════════════════════════════════════════════════
+
+class Harness:
+    MATCH_THRESHOLD = 0.18
+    AUTO_FLUSH = 20
+
+    def __init__(self, skills_dir: Optional[Path] = None):
+        self.skills_dir = skills_dir or Path(__file__).parent / "skills"
+        _create_builtins(self.skills_dir)
+        self.registry = Registry(self.skills_dir)
+        self.loader = Loader(self.skills_dir)
+        self.memory = Memory()
+        self.executor = Executor(self.loader,
+                                 lambda: {ly.name: ly for ly in self.memory.load_layers(self.msgs)})
+        self.msgs: List[Dict] = []
+        self._client = None; self._model = None
+
+    def _llm_init(self):
+        if self._client: return
+        import openai
+        key = os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("OPENAI_API_KEY")
+        if not key: raise EnvironmentError("请设置 DASHSCOPE_API_KEY 或 OPENAI_API_KEY")
+        base = os.environ.get("OPENAI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+        model = os.environ.get("LLM_MODEL", "qwen-plus")
+        self._client = openai.OpenAI(api_key=key, base_url=base)
+        self._model = model
+
+    def _chat(self, sys_prompt: str, inp: str) -> str:
+        self._llm_init()
+        ms = [{"role":"system","content":sys_prompt}] + self.msgs[-16:] + [{"role":"user","content":inp}]
+        print(f"{G}Muse：{R}", end="", flush=True)
+        resp = ""
+        for ch in self._client.chat.completions.create(
+            model=self._model, messages=ms, temperature=0.7, stream=True):
+            d = ch.choices[0].delta.content or ""
+            print(d, end="", flush=True); resp += d
+        print()
+        return resp
+
+    def _print_layers(self):
+        print(f"\n{C}{'─'*60}{R}\n{C}  四层记忆加载情况{R}\n{C}{'─'*60}{R}")
+        for ly in self.memory.load_layers(self.msgs):
+            print(f"  {ly.icon} {ly.label}  {D}[{ly.char_count} 字符]{R}")
+        print(f"{C}{'─'*60}{R}\n")
+
+    def _print_skills(self):
+        ms = self.registry.list_all()
+        cats: Dict[str, List[Manifest]] = {}
+        for m in ms: cats.setdefault(m.category, []).append(m)
+        print(f"\n{C}{'─'*60}{R}\n{C}  技能列表 ({len(ms)} 个){R}\n{C}{'─'*60}{R}")
+        for cat, skills in sorted(cats.items()):
+            print(f"\n  {B}[{cat}]{R}")
+            for s in skills:
+                loaded = self.loader.is_loaded(s.name)
+                st = f"{G}● 已加载{R}" if loaded else f"{D}○ 待加载{R}"
+                stat = self.loader._stats.get(s.name, {})
+                extra = f" x{stat['call_count']}" if stat.get("call_count", 0) > 0 else ""
+                print(f"    {st} {B}{s.name}{R} v{s.version}{D}{extra}{R}\n      {D}{s.description}{R}\n      {D}触发: {', '.join(s.triggers[:5])}{R}")
+        print(f"\n  已加载 {self.loader.loaded_count()}/{len(ms)}  匹配阈值: {self.MATCH_THRESHOLD}\n{C}{'─'*60}{R}\n")
+
+    def _do_flush(self):
+        ms = [m for m in self.msgs if m["role"] in ("user", "assistant")]
+        if not ms: print(f"{Y}会话为空，跳过 Flush。{R}"); return
+        print(f"\n{M}{'═'*60}{R}\n{M}  Memory Flush  —  {len(ms)} 条消息{R}")
+        result = self.memory.flush(ms)
+        if "error" in result: print(f"{Y}  {result['error']}{R}"); return
+        print(f"  {G}新增记忆: {result['new_entries']} 条{R}\n{M}{'═'*60}{R}\n")
+
+    def run(self):
+        print(f"\n{B}{'═'*60}{R}\n{B}  渐进式技能加载与执行 Harness{R}\n{B}{'═'*60}{R}")
+        print(f"  已发现 {C}{len(self.registry.manifests)}{R} 个技能  |  已加载 {C}{self.loader.loaded_count()}{R} 个（渐进式）")
+        print(f"  {D}/skills /reload /flush /memory /layers /stats /new /exit{R}\n{B}{'═'*60}{R}")
+
+        self._print_layers()
+
+        while True:
+            try: inp = input(f"{B}你：{R}").strip()
+            except (KeyboardInterrupt, EOFError): inp = "/exit"
+            if not inp: continue
+
+            # ── 命令处理 ──────────────────────────────────────
+            if inp == "/exit":
+                self._do_flush()
+                s = self.executor.stats()
+                print(f"再见! 加载 {self.loader.loaded_count()} 技能  执行 {s.get('total',0)} 次"); break
+            if inp == "/skills": self._print_skills(); continue
+            if inp == "/reload":
+                self.loader.clear(); self.registry.refresh()
+                print(f"{G}热重载完成! 发现 {len(self.registry.list_all())} 个技能{R}"); continue
+            if inp == "/flush": self._do_flush(); continue
+            if inp == "/memory": self.memory.show(); continue
+            if inp == "/layers": self._print_layers(); continue
+            if inp == "/stats":
+                s = self.executor.stats()
+                print(f"\n{C}执行统计{R}: 总 {s.get('total',0)}  成功 {s.get('success',0)}  失败 {s.get('failed',0)}  均时 {s.get('avg_time','-')}\n"); continue
+            if inp == "/new": self.msgs = []; print(f"{G}新会话已开始。{R}"); self._print_layers(); continue
+
+            # ── 核心路由: 匹配 → 渐进加载 → 执行 ─────────────
+            matches = self.registry.match(inp)
+            if matches and matches[0][1] > self.MATCH_THRESHOLD:
+                m, score = matches[0]
+                print(f"  {D}[技能匹配: {m.name} ({int(score*100)}%)]{R}")
+
+                # 渐进式加载并执行技能
+                result = self.executor.execute(m, inp, self.msgs)
+                if not result.success:
+                    print(f"{E}[技能失败] {result.error[:200]}{R}")
+                sys_p = self.memory.build_prompt(self.msgs) + f"\n## 激活技能: {m.name}\n技能输出: {result.content[:500]}"
+                print(f"{G}Muse [{m.name}]：{R}", end="", flush=True)
+            else:
+                sys_p = self.memory.build_prompt(self.msgs)
+
+            try:
+                resp = self._chat(sys_p, inp)
+            except Exception as e:
+                print(f"{E}[LLM 错误] {e}{R}")
+                resp = f"[离线] 收到: {inp[:100]}"
+
+            self.msgs.append({"role":"user","content":inp})
+            self.msgs.append({"role":"assistant","content":resp})
+
+            # 自动 Flush
+            if sum(1 for x in self.msgs if x["role"]=="user") >= self.AUTO_FLUSH:
+                print(f"\n{Y}[自动 Flush: 消息数达 {self.AUTO_FLUSH}]{R}"); self._do_flush()
+
+def main(): Harness().run()
+if __name__ == "__main__": main()

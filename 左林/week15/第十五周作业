@@ -1,0 +1,381 @@
+"""
+LLM 统一客户端，OpenAI兼容接口
+主Agent、子Agent共享配置，复用同一个客户端实例
+"""
+import os
+from openai import OpenAI
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# 全局配置
+LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-v4-flash")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.deepseek.com")
+LLM_API_KEY = os.getenv("DEEPSEEK_API_KEY") or os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
+
+client = OpenAI(api_key=LLM_API_KEY, base_url=LLM_BASE_URL)
+
+
+def chat(messages, tools=None, temperature=0.2):
+    """LLM对话封装"""
+    params = {
+        "model": LLM_MODEL,
+        "messages": messages,
+        "temperature": temperature
+    }
+    if tools:
+        params["tools"] = tools
+    return client.chat.completions.create(**params)
+
+
+
+
+
+"""
+通用工具集：文本摘要、中英翻译模拟工具
+不再包含财务指标、FAISS向量检索
+"""
+import json
+
+def text_summarize(content: str, max_len: int = 150) -> dict:
+    """文本摘要工具"""
+    if not content.strip():
+        return {"error": "输入文本不能为空"}
+    return {
+        "tool": "text_summarize",
+        "summary": content[:max_len] + "..." if len(content) > max_len else content,
+        "max_length": max_len
+    }
+
+def translate_text(text: str, target_lang: str = "en") -> dict:
+    """文本翻译工具"""
+    lang_map = {"en": "英文", "zh": "中文"}
+    target = lang_map.get(target_lang, target_lang)
+    return {
+        "tool": "translate_text",
+        "origin_text": text,
+        "target_lang": target,
+        "result": f"【{target}译文】{text}"
+    }
+
+# function calling schema
+GENERAL_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "text_summarize",
+            "description": "对长文本进行摘要压缩",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string", "description": "待摘要文本"},
+                    "max_len": {"type": "integer", "description": "摘要最大长度"}
+                },
+                "required": ["content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "translate_text",
+            "description": "文本翻译，支持中英互译",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "原始文本"},
+                    "target_lang": {"type": "string", "description": "目标语言 en/zh"}
+                },
+                "required": ["text"]
+            }
+        }
+    }
+]
+
+TOOL_MAP = {
+    "text_summarize": text_summarize,
+    "translate_text": translate_text
+}
+
+
+
+
+
+"""
+子Agent执行者（和原版完全不同，场景更换）
+1. summary_agent：文本摘要专家，支持工具调用
+2. translate_agent：翻译专家，支持工具调用
+"""
+import os
+import sys
+import json
+sys.path.insert(0, os.path.dirname(__file__))
+from llm import chat
+from tools import GENERAL_TOOLS, TOOL_MAP
+
+MAX_TOOL_ROUND = 3
+
+def summary_agent(task: str) -> str:
+    """文本摘要专家子Agent"""
+    messages = [
+        {
+            "role": "system",
+            "content": "你是文本摘要专家，调用摘要工具完成任务，禁止编造内容。"
+        },
+        {"role": "user", "content": task}
+    ]
+    for _ in range(MAX_TOOL_ROUND):
+        resp = chat(messages, tools=GENERAL_TOOLS)
+        msg = resp.choices[0].message
+        if not msg.tool_calls:
+            return msg.content or "摘要专家无返回结果"
+        messages.append(msg)
+        for call in msg.tool_calls:
+            args = json.loads(call.function.arguments or "{}")
+            res = TOOL_MAP[call.function.name](**args)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": call.id,
+                "content": json.dumps(res, ensure_ascii=False)
+            })
+    return "摘要专家达到最大工具调用轮次"
+
+def translate_agent(task: str) -> str:
+    """翻译专家子Agent"""
+    messages = [
+        {
+            "role": "system",
+            "content": "你是翻译专家，使用翻译工具完成文本转换，严格按照工具返回结果输出。"
+        },
+        {"role": "user", "content": task}
+    ]
+    for _ in range(MAX_TOOL_ROUND):
+        resp = chat(messages, tools=GENERAL_TOOLS)
+        msg = resp.choices[0].message
+        if not msg.tool_calls:
+            return msg.content or "翻译专家无返回结果"
+        messages.append(msg)
+        for call in msg.tool_calls:
+            args = json.loads(call.function.arguments or "{}")
+            res = TOOL_MAP[call.function.name](**args)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": call.id,
+                "content": json.dumps(res, ensure_ascii=False)
+            })
+    return "翻译专家达到最大工具调用轮次"
+
+# 子Agent调度注册表
+SUB_AGENT_REGISTRY = {
+    "summary_agent": summary_agent,
+    "translate_agent": translate_agent
+}
+
+def run_subagent(agent_name: str, task_input: str):
+    """统一执行子Agent入口"""
+    handler = SUB_AGENT_REGISTRY.get(agent_name)
+    if handler is None:
+        return f"错误：不存在子Agent {agent_name}，可选列表：{list(SUB_AGENT_REGISTRY.keys())}"
+    return handler(task_input)
+
+
+
+
+
+
+
+"""
+主调度Agent：支持并行下发多个子Agent任务
+差异化改进：
+1. 使用JSON任务格式代替正则解析Action
+2. 支持 asyncio / ThreadPool 两种并行模式
+3. 结构化推理日志，增加异常捕获
+4. 任务失败容错，计时统计
+5. 场景：通用资讯调研助手
+架构：
+主Agent（推理生成任务列表）
+    ├─ summary_agent 文本摘要
+    └─ translate_agent 文本翻译
+多个独立任务可并行执行
+"""
+import os
+import sys
+import time
+import json
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+sys.path.insert(0, os.path.dirname(__file__))
+from llm import chat
+from sub_agents import run_subagent, SUB_AGENT_REGISTRY
+
+MAX_REACT_STEP = 3
+MAX_CONCURRENT = 4
+
+# ===================== 任务解析：JSON解析，不再使用正则 =====================
+def parse_task_json(llm_output: str):
+    """
+    从LLM输出中提取JSON任务数组，替代原版正则
+    返回 [{"agent_name": "...", "task": "..."}]
+    """
+    try:
+        start = llm_output.find("[")
+        end = llm_output.rfind("]") + 1
+        json_str = llm_output[start:end]
+        task_list = json.loads(json_str)
+        validated = []
+        for item in task_list:
+            if "agent_name" in item and "task" in item:
+                validated.append((item["agent_name"], item["task"]))
+        return validated
+    except Exception:
+        return []
+
+# ===================== 两种并行执行引擎 =====================
+async def _async_subtask(idx, agent_name, task_input):
+    """异步包装子Agent任务"""
+    loop = asyncio.get_event_loop()
+    t0 = time.time()
+    try:
+        res = await loop.run_in_executor(None, run_subagent, agent_name, task_input)
+    except Exception as e:
+        res = f"子任务异常：{str(e)}"
+    cost = time.time() - t0
+    return idx, agent_name, task_input, res, cost
+
+async def run_tasks_async(task_list):
+    """asyncio 并行执行"""
+    t_start = time.time()
+    tasks = [_async_subtask(i, name, inp) for i, (name, inp) in enumerate(task_list)]
+    result_raw = await asyncio.gather(*tasks)
+    wall_time = time.time() - t_start
+    result_raw.sort(key=lambda x: x[0])
+    serial_sum = sum(r[4] for r in result_raw)
+    return result_raw, wall_time, serial_sum
+
+def run_tasks_thread(task_list):
+    """线程池并行执行（兼容原版逻辑，但封装重构）"""
+    def wrapper(idx, agent_name, task_input):
+        t0 = time.time()
+        try:
+            res = run_subagent(agent_name, task_input)
+        except Exception as e:
+            res = f"子任务异常：{str(e)}"
+        cost = time.time() - t0
+        return idx, agent_name, task_input, res, cost
+
+    t_start = time.time()
+    with ThreadPoolExecutor(max_workers=min(MAX_CONCURRENT, len(task_list))) as pool:
+        futures = [pool.submit(wrapper, i, n, p) for i, (n, p) in enumerate(task_list)]
+        result_raw = [f.result() for f in futures]
+    wall_time = time.time() - t_start
+    result_raw.sort(key=lambda x: x[0])
+    serial_sum = sum(r[4] for r in result_raw)
+    return result_raw, wall_time, serial_sum
+
+# ===================== 性能打印 =====================
+def print_performance(mode, wall_clock, serial_sum):
+    print("\n========== 性能统计 ==========")
+    print(f"并行模式：{mode}")
+    print(f"墙钟耗时：{wall_clock:.2f} s")
+    print(f"串行总耗时基线：{serial_sum:.2f} s")
+    if wall_clock > 0:
+        speedup = serial_sum / wall_clock
+        print(f"理论加速比：{speedup:.2f}x")
+
+# ===================== 主Agent系统提示词（JSON任务规范） =====================
+SYSTEM_PROMPT = """
+你是调研主管Agent，负责拆解复杂需求，下发任务给子Agent。
+可用子Agent列表：
+1. summary_agent：对长文本进行摘要
+2. translate_agent：文本中英互译
+
+规则：
+1. 如果可以拆分成多个互不依赖的任务，一次性生成全部任务，支持并行执行
+2. 严格输出格式：
+Thought: 你的推理思考，分析需要哪些子任务、任务之间是否独立
+TASKS:
+[
+    {"agent_name":"summary_agent","task":"任务描述"},
+    {"agent_name":"translate_agent","task":"任务描述"}
+]
+3. 收集全部子Agent结果、信息足够后，输出最终答案：
+Thought: 信息汇总完成
+FINAL_ANSWER: 整合后的完整回答
+4. 最多执行{max_step}轮任务下发，禁止编造信息。
+"""
+
+async def agent_main(user_query: str, use_async: bool = True):
+    """
+    主推理循环入口
+    use_async=True：asyncio异步并行
+    use_async=False：线程池并行
+    """
+    mode_name = "Asyncio异步并行" if use_async else "ThreadPool线程池并行"
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT.format(max_step=MAX_REACT_STEP)},
+        {"role": "user", "content": user_query}
+    ]
+    trace_log = []
+    total_wall = 0.0
+    total_serial = 0.0
+
+    for step in range(1, MAX_REACT_STEP + 1):
+        resp = chat(messages, temperature=0.3)
+        content = resp.choices[0].message.content.strip()
+        trace_log.append(content)
+
+        # 判断是否到达最终回答
+        if "FINAL_ANSWER:" in content:
+            final_ans = content.split("FINAL_ANSWER:", 1)[1].strip()
+            print("\n===== 完整推理日志 =====")
+            for item in trace_log:
+                print(item, "\n")
+            print_performance(mode_name, total_wall, total_serial)
+            return final_ans
+
+        # 解析任务列表
+        task_list = parse_task_json(content)
+        if not task_list:
+            print_performance(mode_name, total_wall, total_serial)
+            return f"无法解析有效任务：{content}"
+
+        print(f"\n【Step {step}】下发 {len(task_list)} 个并行子任务")
+        agent_names = ",".join([n for n, _ in task_list])
+        print(f"目标子Agent：{agent_names}")
+
+        # 执行任务
+        if use_async:
+            results, wall, serial = await run_tasks_async(task_list)
+        else:
+            results, wall, serial = run_tasks_thread(task_list)
+
+        total_wall += wall
+        total_serial += serial
+        print(f"Step{step} 本轮墙钟：{wall:.2f}s | 串行基线：{serial:.2f}s")
+
+        # 组装观察信息
+        obs_text = ""
+        for idx, name, inp, res, dur in results:
+            print(f"  > {name} ({dur:.2f}s) 输出片段：{res[:100]}...")
+            obs_text += f"Observation {idx+1} [{name}]：{res}\n\n"
+
+        messages.append({"role": "assistant", "content": content})
+        messages.append({"role": "user", "content": f"子Agent返回结果：\n{obs_text}"})
+
+    print_performance(mode_name, total_wall, total_serial)
+    return f"达到最大推理轮次{MAX_REACT_STEP}，未完成回答。推理链：\n" + "\n".join(trace_log)
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="并行多子Agent调度系统")
+    parser.add_argument("--thread", action="store_true", help="使用线程池并行，默认asyncio")
+    args = parser.parse_args()
+
+    query = input("请输入调研问题：")
+    if not query.strip():
+        sys.exit()
+
+    result = asyncio.run(agent_main(query, use_async=not args.thread))
+    print("\n===== 最终回答 =====")
+    print(result)

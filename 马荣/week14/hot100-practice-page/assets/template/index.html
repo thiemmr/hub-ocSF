@@ -1,0 +1,995 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="随机练习 LeetCode Hot 100，并在浏览器本地保存代码与思路。">
+  <title>Hot 100 随机练习</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d12;
+      --panel: rgba(23, 26, 35, .88);
+      --panel-2: #11141b;
+      --line: rgba(255, 255, 255, .10);
+      --text: #f7f5ef;
+      --muted: #a5a8b2;
+      --accent: #ffcc4a;
+      --accent-2: #ff8a5b;
+      --easy: #57d6ad;
+      --medium: #ffca58;
+      --hard: #ff6e7f;
+      --radius: 22px;
+      --shadow: 0 28px 80px rgba(0, 0, 0, .34);
+    }
+
+    * { box-sizing: border-box; }
+
+    html { min-height: 100%; background: var(--bg); }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 12% 10%, rgba(255, 204, 74, .13), transparent 25rem),
+        radial-gradient(circle at 88% 88%, rgba(255, 108, 84, .10), transparent 28rem),
+        var(--bg);
+      font: 15px/1.6 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    button, select, textarea { font: inherit; }
+
+    button, select, a { -webkit-tap-highlight-color: transparent; }
+
+    button:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible {
+      outline: 3px solid rgba(255, 204, 74, .55);
+      outline-offset: 3px;
+    }
+
+    .shell { width: min(1500px, calc(100% - 40px)); margin: 0 auto; padding: 28px 0 34px; }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 22px;
+      margin-bottom: 24px;
+    }
+
+    .brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
+
+    .mark {
+      display: grid;
+      place-items: center;
+      width: 46px;
+      height: 46px;
+      border-radius: 15px;
+      color: #15130d;
+      background: linear-gradient(135deg, #ffe182, var(--accent));
+      box-shadow: 0 12px 30px rgba(255, 204, 74, .18);
+      font-weight: 900;
+      letter-spacing: -.08em;
+    }
+
+    .brand h1 { margin: 0; font-size: clamp(20px, 2.5vw, 30px); line-height: 1.15; letter-spacing: -.04em; }
+    .brand p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+
+    .progress-wrap { display: flex; align-items: center; gap: 12px; color: var(--muted); white-space: nowrap; }
+    .progress-track { width: 120px; height: 7px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.08); }
+    .progress-bar { width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .28s ease; }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px;
+      margin-bottom: 18px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(17, 20, 27, .74);
+      backdrop-filter: blur(16px);
+    }
+
+    .filters { display: flex; gap: 10px; min-width: 0; }
+
+    select {
+      min-height: 42px;
+      padding: 0 34px 0 13px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      color: var(--text);
+      background: #191c24;
+      cursor: pointer;
+    }
+
+    .random-btn, .overview-btn, .quiet-btn, .practice-btn, .wrong-btn, .close-btn, .problem-status {
+      border: 0;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: transform .16s ease, filter .16s ease, background .16s ease;
+    }
+
+    .random-btn:hover, .overview-btn:hover, .quiet-btn:hover, .practice-btn:hover, .wrong-btn:hover, .problem-status:hover { transform: translateY(-1px); filter: brightness(1.06); }
+    .random-btn:active, .overview-btn:active, .quiet-btn:active, .practice-btn:active, .wrong-btn:active, .problem-status:active { transform: translateY(0); }
+
+    .toolbar-actions { display: flex; align-items: center; gap: 10px; }
+
+    .random-btn {
+      min-height: 46px;
+      padding: 0 19px;
+      color: #17140c;
+      background: linear-gradient(135deg, #ffe180, var(--accent));
+      box-shadow: 0 12px 25px rgba(255, 204, 74, .12);
+      font-weight: 800;
+    }
+
+    .overview-btn {
+      min-height: 46px;
+      padding: 0 16px;
+      border: 1px solid var(--line);
+      color: var(--text);
+      background: rgba(255,255,255,.06);
+      font-weight: 800;
+    }
+    .overview-btn span { margin-left: 6px; color: var(--accent); }
+
+    .layout { display: grid; grid-template-columns: minmax(330px, .82fr) minmax(480px, 1.18fr); gap: 18px; min-height: calc(100vh - 190px); }
+
+    .card {
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+
+    .problem-card { display: flex; flex-direction: column; padding: clamp(24px, 3vw, 40px); position: relative; }
+
+    .problem-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto;
+      height: 3px;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2), transparent 80%);
+    }
+
+    .eyebrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 28px; color: var(--muted); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+
+    .problem-number { margin: 0 0 8px; color: var(--accent); font: 700 14px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .problem-title { margin: 0; font-size: clamp(30px, 4vw, 54px); line-height: 1.05; letter-spacing: -.055em; text-wrap: balance; }
+
+    .summary {
+      margin: 28px 0 24px;
+      padding: 20px 0;
+      border-block: 1px solid var(--line);
+      color: #d7d8dd;
+      font-size: 16px;
+    }
+
+    .source-link { color: var(--accent); text-underline-offset: 4px; text-decoration-color: rgba(255,204,74,.4); }
+
+    .problem-details { margin-top: 24px; border-top: 1px solid var(--line); }
+    .detail-section { padding: 18px 0; border-bottom: 1px solid var(--line); }
+    .detail-section h3 { margin: 0 0 9px; color: var(--accent); font-size: 13px; letter-spacing: .08em; }
+    .detail-section p { margin: 0; color: #d7d8dd; line-height: 1.8; white-space: pre-line; }
+    .detail-section pre {
+      margin: 0;
+      padding: 14px 16px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      color: #e7e8ec;
+      background: #0e1117;
+      font: 13px/1.7 "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+      white-space: pre-wrap;
+    }
+
+    .prompt-box {
+      margin-top: auto;
+      padding: 17px 18px;
+      border: 1px dashed rgba(255, 204, 74, .28);
+      border-radius: 15px;
+      color: var(--muted);
+      background: rgba(255, 204, 74, .045);
+      font-size: 13px;
+    }
+
+    .editor-card { display: grid; grid-template-rows: auto minmax(360px, 1fr) auto 150px auto; min-height: 680px; }
+
+    .editor-head, .notes-head, .editor-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .editor-head h2, .notes-head h3 { margin: 0; font-size: 14px; letter-spacing: .01em; }
+    .editor-actions { display: flex; align-items: center; gap: 8px; }
+    .editor-head select { min-height: 36px; padding-left: 10px; font-size: 13px; }
+
+    .quiet-btn, .practice-btn, .wrong-btn { min-height: 36px; padding: 0 12px; font-size: 13px; }
+    .quiet-btn { border: 1px solid var(--line); color: #d7d8dd; background: rgba(255,255,255,.05); }
+    .practice-btn { color: #15130d; background: var(--accent); font-weight: 800; }
+    .practice-btn.done { color: var(--easy); background: rgba(87,214,173,.13); }
+    .wrong-btn { border: 1px solid rgba(255,110,127,.35); color: #ffb0ba; background: rgba(255,110,127,.08); font-weight: 800; }
+    .wrong-btn.active { color: #171012; background: var(--hard); }
+
+    textarea {
+      display: block;
+      width: 100%;
+      height: 100%;
+      resize: none;
+      border: 0;
+      outline: 0;
+      color: #f1f2f4;
+      background: #0e1117;
+      caret-color: var(--accent);
+      tab-size: 2;
+    }
+
+    #codeEditor { padding: 22px; font: 14px/1.75 "Cascadia Code", "SFMono-Regular", Consolas, monospace; }
+    .notes-head { border-top: 1px solid var(--line); padding-block: 10px; }
+    .notes-head span { color: var(--muted); font-size: 12px; }
+    #notesEditor { min-height: 150px; padding: 15px 20px; background: #12151c; font-size: 14px; }
+
+    .editor-foot { border: 0; color: var(--muted); font-size: 12px; }
+    .save-status { display: inline-flex; align-items: center; gap: 7px; }
+    .save-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--easy); box-shadow: 0 0 0 4px rgba(87,214,173,.08); }
+
+    .overview-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background: rgba(4, 5, 8, .78);
+      backdrop-filter: blur(10px);
+    }
+    .overview-backdrop[hidden] { display: none; }
+    .overview-dialog {
+      display: flex;
+      flex-direction: column;
+      width: min(1080px, 100%);
+      max-height: min(860px, calc(100vh - 40px));
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 24px;
+      background: #12151c;
+      box-shadow: 0 36px 100px rgba(0,0,0,.58);
+    }
+    .overview-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 22px 24px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+    .overview-head h2 { margin: 0; font-size: 24px; }
+    .overview-head p { margin: 3px 0 0; color: var(--muted); font-size: 13px; }
+    .close-btn { width: 40px; height: 40px; color: var(--text); background: rgba(255,255,255,.07); font-size: 22px; }
+    .overview-summary {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px 18px;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--line);
+    }
+    .overview-stat { color: var(--muted); font-size: 13px; }
+    .overview-stat strong { margin-left: 4px; color: var(--text); font-size: 16px; }
+    .overview-filter { margin-left: auto; min-height: 38px; }
+    .overview-legend { display: flex; flex-wrap: wrap; gap: 14px; padding: 12px 24px 0; color: var(--muted); font-size: 12px; }
+    .legend-item { display: inline-flex; align-items: center; gap: 7px; }
+    .legend-swatch { width: 14px; height: 14px; border-radius: 4px; background: #f7f5ef; }
+    .legend-swatch.practiced { background: var(--easy); }
+    .legend-swatch.wrong { background: transparent; border: 2px solid var(--hard); }
+    .problem-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+      gap: 10px;
+      padding: 18px 24px 24px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+    .problem-status {
+      position: relative;
+      min-height: 82px;
+      padding: 12px 13px;
+      border: 3px solid transparent;
+      color: #17191f;
+      background: #f7f5ef;
+      text-align: left;
+    }
+    .problem-status.practiced { color: #07251c; background: var(--easy); }
+    .problem-status.wrong { border-color: var(--hard); }
+    .problem-status.current { outline: 3px solid var(--accent); outline-offset: 2px; }
+    .problem-status-number { display: block; margin-bottom: 4px; font: 800 12px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; opacity: .72; }
+    .problem-status-title { display: block; font-weight: 850; line-height: 1.35; }
+    .problem-status-wrong { position: absolute; top: 8px; right: 9px; color: #d82f49; font-size: 15px; }
+    .overview-empty { grid-column: 1 / -1; padding: 42px 10px; color: var(--muted); text-align: center; }
+    body.modal-open { overflow: hidden; }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 24px;
+      z-index: 10;
+      padding: 11px 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      color: var(--text);
+      background: #20242d;
+      box-shadow: var(--shadow);
+      opacity: 0;
+      pointer-events: none;
+      transform: translate(-50%, 14px);
+      transition: .2s ease;
+    }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    @media (max-width: 900px) {
+      .shell { width: min(100% - 24px, 760px); padding-top: 18px; }
+      .topbar { align-items: flex-start; }
+      .progress-wrap { display: none; }
+      .toolbar { align-items: stretch; }
+      .filters { flex: 1; }
+      .filters select { width: 50%; }
+      .toolbar-actions { flex-shrink: 0; }
+      .layout { grid-template-columns: 1fr; }
+      .problem-card { min-height: 520px; }
+      .editor-card { min-height: 690px; }
+    }
+
+    @media (max-width: 580px) {
+      .brand p { display: none; }
+      .toolbar, .filters, .toolbar-actions { flex-direction: column; }
+      .filters select { width: 100%; }
+      .toolbar-actions button { width: 100%; }
+      .problem-card { padding: 24px; min-height: 480px; }
+      .problem-title { font-size: 36px; }
+      .editor-actions { flex-wrap: wrap; justify-content: flex-end; }
+      .editor-card { grid-template-rows: auto minmax(390px, 1fr) auto 160px auto; }
+      .editor-head { align-items: flex-start; }
+      .editor-foot { align-items: flex-start; flex-direction: column; }
+      .overview-backdrop { padding: 0; }
+      .overview-dialog { width: 100%; max-height: 100vh; min-height: 100vh; border-radius: 0; }
+      .overview-head, .overview-summary { padding-inline: 16px; }
+      .overview-filter { width: 100%; margin-left: 0; }
+      .overview-legend { padding-inline: 16px; }
+      .problem-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-inline: 16px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="mark" aria-hidden="true">H¹⁰⁰</div>
+        <div>
+          <h1>Hot 100 随机练习</h1>
+          <p>专注思考与表达，不运行、不提交、不判题</p>
+        </div>
+      </div>
+      <div class="progress-wrap" aria-label="练习进度">
+        <span id="progressText">已练习 0 / 100</span>
+        <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
+      </div>
+    </header>
+
+    <section class="toolbar" aria-label="题目筛选">
+      <div class="filters">
+        <select id="difficultyFilter" aria-label="按难度筛选">
+          <option value="all">全部难度</option>
+          <option value="简单">简单</option>
+          <option value="中等">中等</option>
+          <option value="困难">困难</option>
+        </select>
+        <select id="categoryFilter" aria-label="按分类筛选">
+          <option value="all">全部分类</option>
+        </select>
+      </div>
+      <div class="toolbar-actions">
+        <button class="overview-btn" id="overviewButton" type="button" aria-haspopup="dialog" aria-expanded="false">题库进度 <span id="toolbarProgress">0/100</span></button>
+        <button class="random-btn" id="randomButton" type="button">换一道题 <span aria-hidden="true">↗</span></button>
+      </div>
+    </section>
+
+    <section class="layout">
+      <article class="card problem-card" aria-live="polite">
+        <div class="eyebrow">
+          <span id="questionIndex">随机题目</span>
+        </div>
+        <p class="problem-number" id="problemNumber"></p>
+        <h2 class="problem-title" id="problemTitle"></h2>
+        <p class="summary" id="problemSummary"></p>
+        <div class="problem-details" aria-label="完整题目">
+          <section class="detail-section">
+            <h3>题目描述</h3>
+            <p id="problemDescription"></p>
+          </section>
+          <section class="detail-section">
+            <h3>输入</h3>
+            <p id="problemInput"></p>
+          </section>
+          <section class="detail-section">
+            <h3>输出</h3>
+            <p id="problemOutput"></p>
+          </section>
+          <section class="detail-section">
+            <h3>约束</h3>
+            <p id="problemConstraints"></p>
+          </section>
+          <section class="detail-section">
+            <h3>示例</h3>
+            <pre id="problemExample"></pre>
+          </section>
+        </div>
+        <p><a class="source-link" id="problemLink" target="_blank" rel="noreferrer">在力扣核对官方题面 ↗</a></p>
+        <div class="prompt-box">先写下思路，再完成代码草稿。页面只保存你的输入，不会运行代码，也不会判断答案是否正确。</div>
+      </article>
+
+      <section class="card editor-card" aria-label="答题区">
+        <div class="editor-head">
+          <h2>你的解答</h2>
+          <div class="editor-actions">
+            <select id="languageSelect" aria-label="编程语言">
+              <option>JavaScript</option>
+              <option>Python</option>
+              <option>Java</option>
+              <option>C++</option>
+              <option>Go</option>
+              <option>TypeScript</option>
+            </select>
+            <button class="quiet-btn" id="copyButton" type="button">复制</button>
+            <button class="wrong-btn" id="wrongButton" type="button">加入错题本</button>
+            <button class="practice-btn" id="practiceButton" type="button">标记已练习</button>
+          </div>
+        </div>
+        <textarea id="codeEditor" spellcheck="false" aria-label="代码草稿" placeholder="在这里写代码草稿…"></textarea>
+        <div class="notes-head">
+          <h3>思路与复杂度</h3>
+          <span>同题独立保存</span>
+        </div>
+        <textarea id="notesEditor" aria-label="解题思路" placeholder="记录核心思路、边界情况，以及时间/空间复杂度…"></textarea>
+        <footer class="editor-foot">
+          <span class="save-status"><span class="save-dot"></span><span id="saveText">草稿已保存在此浏览器</span></span>
+          <span>快捷键：Alt + N 换题 · Ctrl/⌘ + S 保存</span>
+        </footer>
+      </section>
+    </section>
+  </main>
+
+  <div class="overview-backdrop" id="overviewBackdrop" hidden>
+    <section class="overview-dialog" role="dialog" aria-modal="true" aria-labelledby="overviewTitle">
+      <header class="overview-head">
+        <div>
+          <h2 id="overviewTitle">Hot 100 练习情况</h2>
+          <p>点击题目即可跳转练习，状态仅代表你的本地记录。</p>
+        </div>
+        <button class="close-btn" id="overviewClose" type="button" aria-label="关闭题库进度">×</button>
+      </header>
+      <div class="overview-summary">
+        <span class="overview-stat">已练习<strong id="overviewPracticed">0</strong></span>
+        <span class="overview-stat">未练习<strong id="overviewUnpracticed">100</strong></span>
+        <span class="overview-stat">错题本<strong id="overviewWrong">0</strong></span>
+        <select class="overview-filter" id="overviewFilter" aria-label="筛选练习状态">
+          <option value="all">全部 100 题</option>
+          <option value="unpracticed">仅看未练习</option>
+          <option value="practiced">仅看已练习</option>
+          <option value="wrong">仅看错题本</option>
+        </select>
+      </div>
+      <div class="overview-legend" aria-label="状态颜色说明">
+        <span class="legend-item"><span class="legend-swatch"></span>白色：未练习</span>
+        <span class="legend-item"><span class="legend-swatch practiced"></span>绿色：已练习</span>
+        <span class="legend-item"><span class="legend-swatch wrong"></span>红框：错题本</span>
+      </div>
+      <div class="problem-grid" id="problemGrid" aria-label="100 道题练习状态"></div>
+    </section>
+  </div>
+
+  <div class="toast" id="toast" role="status"></div>
+
+  <script>
+    const problems = [
+      {n:17,t:"电话号码的字母组合",s:"letter-combinations-of-a-phone-number",d:"中等",c:"回溯",b:"给定仅含 2–9 的数字字符串，返回它能表示的所有字母组合。"},
+      {n:22,t:"括号生成",s:"generate-parentheses",d:"中等",c:"回溯",b:"给定括号对数 n，生成所有有效且完整的括号组合。"},
+      {n:39,t:"组合总和",s:"combination-sum",d:"中等",c:"回溯",b:"从候选数字中可重复选取元素，找出和为目标值的所有不同组合。"},
+      {n:46,t:"全排列",s:"permutations",d:"中等",c:"回溯",b:"给定不含重复数字的数组，返回其所有可能的排列。"},
+      {n:51,t:"N 皇后",s:"n-queens",d:"困难",c:"回溯",b:"在 n×n 棋盘上放置 n 个互不攻击的皇后，返回所有布局。"},
+      {n:78,t:"子集",s:"subsets",d:"中等",c:"回溯",b:"给定元素互异的数组，返回它的所有子集。"},
+      {n:79,t:"单词搜索",s:"word-search",d:"中等",c:"回溯",b:"判断字符网格中能否沿相邻单元格组成指定单词，每格最多使用一次。"},
+      {n:131,t:"分割回文串",s:"palindrome-partitioning",d:"中等",c:"回溯",b:"将字符串分割成若干回文子串，返回所有可行的分割方案。"},
+      {n:4,t:"寻找两个正序数组的中位数",s:"median-of-two-sorted-arrays",d:"困难",c:"二分查找",b:"给定两个有序数组，在对数级时间复杂度目标下求合并后的中位数。"},
+      {n:33,t:"搜索旋转排序数组",s:"search-in-rotated-sorted-array",d:"中等",c:"二分查找",b:"在元素互异的旋转有序数组中查找目标值下标。"},
+      {n:34,t:"在排序数组中查找元素的第一个和最后一个位置",s:"find-first-and-last-position-of-element-in-sorted-array",d:"中等",c:"二分查找",b:"在非递减数组中找出目标值出现区间的左右端点。"},
+      {n:35,t:"搜索插入位置",s:"search-insert-position",d:"简单",c:"二分查找",b:"在有序数组中找到目标值，或返回它按序插入时的位置。"},
+      {n:74,t:"搜索二维矩阵",s:"search-a-2d-matrix",d:"中等",c:"二分查找",b:"在每行递增且下一行首项大于上一行末项的矩阵中查找目标值。"},
+      {n:153,t:"寻找旋转排序数组中的最小值",s:"find-minimum-in-rotated-sorted-array",d:"中等",c:"二分查找",b:"在元素互异的旋转有序数组中找出最小元素。"},
+      {n:94,t:"二叉树的中序遍历",s:"binary-tree-inorder-traversal",d:"简单",c:"二叉树",b:"返回二叉树节点值的中序遍历结果。"},
+      {n:98,t:"验证二叉搜索树",s:"validate-binary-search-tree",d:"中等",c:"二叉树",b:"判断一棵二叉树是否满足严格的二叉搜索树性质。"},
+      {n:101,t:"对称二叉树",s:"symmetric-tree",d:"简单",c:"二叉树",b:"判断二叉树是否关于根节点镜像对称。"},
+      {n:102,t:"二叉树的层序遍历",s:"binary-tree-level-order-traversal",d:"中等",c:"二叉树",b:"按从上到下、从左到右的层次返回节点值。"},
+      {n:104,t:"二叉树的最大深度",s:"maximum-depth-of-binary-tree",d:"简单",c:"二叉树",b:"计算二叉树从根到最远叶子节点的最大深度。"},
+      {n:105,t:"从前序与中序遍历序列构造二叉树",s:"construct-binary-tree-from-preorder-and-inorder-traversal",d:"中等",c:"二叉树",b:"根据互不重复节点的前序和中序遍历结果还原二叉树。"},
+      {n:108,t:"将有序数组转换为二叉搜索树",s:"convert-sorted-array-to-binary-search-tree",d:"简单",c:"二叉树",b:"把递增数组转换成一棵高度平衡的二叉搜索树。"},
+      {n:114,t:"二叉树展开为链表",s:"flatten-binary-tree-to-linked-list",d:"中等",c:"二叉树",b:"原地将二叉树按前序遍历顺序展开成仅含右指针的链表。"},
+      {n:124,t:"二叉树中的最大路径和",s:"binary-tree-maximum-path-sum",d:"困难",c:"二叉树",b:"求二叉树中任意非空连续路径能够取得的最大节点值之和。"},
+      {n:199,t:"二叉树的右视图",s:"binary-tree-right-side-view",d:"中等",c:"二叉树",b:"返回从右侧观察二叉树时每一层可见的节点值。"},
+      {n:226,t:"翻转二叉树",s:"invert-binary-tree",d:"简单",c:"二叉树",b:"交换二叉树中每个节点的左右子树。"},
+      {n:230,t:"二叉搜索树中第 K 小的元素",s:"kth-smallest-element-in-a-bst",d:"中等",c:"二叉树",b:"找出二叉搜索树中按值排序后的第 k 小元素。"},
+      {n:236,t:"二叉树的最近公共祖先",s:"lowest-common-ancestor-of-a-binary-tree",d:"中等",c:"二叉树",b:"在二叉树中找到两个给定节点的最近公共祖先。"},
+      {n:437,t:"路径总和 III",s:"path-sum-iii",d:"中等",c:"二叉树",b:"统计二叉树中节点值之和等于目标值的向下路径数量。"},
+      {n:543,t:"二叉树的直径",s:"diameter-of-binary-tree",d:"简单",c:"二叉树",b:"求二叉树任意两节点间最长路径包含的边数。"},
+      {n:5,t:"最长回文子串",s:"longest-palindromic-substring",d:"中等",c:"动态规划",b:"找出字符串中最长的回文连续子串。"},
+      {n:32,t:"最长有效括号",s:"longest-valid-parentheses",d:"困难",c:"动态规划",b:"求只含左右括号的字符串中最长有效括号子串长度。"},
+      {n:62,t:"不同路径",s:"unique-paths",d:"中等",c:"动态规划",b:"统计机器人从网格左上角只向右或向下到右下角的路径数量。"},
+      {n:64,t:"最小路径和",s:"minimum-path-sum",d:"中等",c:"动态规划",b:"在非负数网格中只向右或向下，求左上到右下的最小路径和。"},
+      {n:70,t:"爬楼梯",s:"climbing-stairs",d:"简单",c:"动态规划",b:"每次可爬 1 或 2 级，计算到达第 n 级的不同方法数。"},
+      {n:72,t:"编辑距离",s:"edit-distance",d:"中等",c:"动态规划",b:"求将一个单词通过插入、删除和替换变为另一个单词的最少操作数。"},
+      {n:118,t:"杨辉三角",s:"pascals-triangle",d:"简单",c:"动态规划",b:"生成杨辉三角的前 numRows 行。"},
+      {n:139,t:"单词拆分",s:"word-break",d:"中等",c:"动态规划",b:"判断字符串能否由字典中的一个或多个单词拼接而成。"},
+      {n:152,t:"乘积最大子数组",s:"maximum-product-subarray",d:"中等",c:"动态规划",b:"找出整数数组中乘积最大的非空连续子数组。"},
+      {n:198,t:"打家劫舍",s:"house-robber",d:"中等",c:"动态规划",b:"不能偷相邻房屋时，求能够偷取的最大金额。"},
+      {n:279,t:"完全平方数",s:"perfect-squares",d:"中等",c:"动态规划",b:"求和为正整数 n 的完全平方数的最少数量。"},
+      {n:300,t:"最长递增子序列",s:"longest-increasing-subsequence",d:"中等",c:"动态规划",b:"求整数数组中最长严格递增子序列的长度。"},
+      {n:322,t:"零钱兑换",s:"coin-change",d:"中等",c:"动态规划",b:"用给定面额凑出目标金额，求所需硬币的最少数量。"},
+      {n:416,t:"分割等和子集",s:"partition-equal-subset-sum",d:"中等",c:"动态规划",b:"判断正整数数组能否被分成元素和相等的两个子集。"},
+      {n:1143,t:"最长公共子序列",s:"longest-common-subsequence",d:"中等",c:"动态规划",b:"求两个字符串的最长公共子序列长度。"},
+      {n:200,t:"岛屿数量",s:"number-of-islands",d:"中等",c:"图论",b:"统计由陆地和水组成的二维网格中相互分离的岛屿数量。"},
+      {n:207,t:"课程表",s:"course-schedule",d:"中等",c:"图论",b:"根据课程先修关系判断是否可以完成所有课程。"},
+      {n:994,t:"腐烂的橘子",s:"rotting-oranges",d:"中等",c:"图论",b:"计算新鲜橘子全部腐烂所需的最少分钟数，或判断无法完成。"},
+      {n:45,t:"跳跃游戏 II",s:"jump-game-ii",d:"中等",c:"贪心",b:"每个位置给出最大跳跃长度，求到达末尾的最少跳跃次数。"},
+      {n:55,t:"跳跃游戏",s:"jump-game",d:"中等",c:"贪心",b:"判断能否依据每个位置的最大跳跃长度到达数组末尾。"},
+      {n:121,t:"买卖股票的最佳时机",s:"best-time-to-buy-and-sell-stock",d:"简单",c:"贪心",b:"只允许一次买入和一次卖出，求能获得的最大利润。"},
+      {n:763,t:"划分字母区间",s:"partition-labels",d:"中等",c:"贪心",b:"把字符串划分为尽量多的片段，使同一字母只出现在一个片段中。"},
+      {n:1,t:"两数之和",s:"two-sum",d:"简单",c:"哈希",b:"在整数数组中找到和为目标值的两个元素下标。"},
+      {n:49,t:"字母异位词分组",s:"group-anagrams",d:"中等",c:"哈希",b:"将由相同字母重新排列得到的字符串归入同一组。"},
+      {n:128,t:"最长连续序列",s:"longest-consecutive-sequence",d:"中等",c:"哈希",b:"在未排序数组中找出最长连续整数序列的长度。"},
+      {n:560,t:"和为 K 的子数组",s:"subarray-sum-equals-k",d:"中等",c:"哈希",b:"统计整数数组中元素和恰好为 k 的连续子数组个数。"},
+      {n:215,t:"数组中的第 K 个最大元素",s:"kth-largest-element-in-an-array",d:"中等",c:"堆",b:"找出未排序数组按大小排序后的第 k 大元素。"},
+      {n:295,t:"数据流的中位数",s:"find-median-from-data-stream",d:"困难",c:"堆",b:"设计支持持续加入数字并随时返回当前中位数的数据结构。"},
+      {n:347,t:"前 K 个高频元素",s:"top-k-frequent-elements",d:"中等",c:"堆",b:"返回整数数组中出现频率最高的 k 个元素。"},
+      {n:2,t:"两数相加",s:"add-two-numbers",d:"中等",c:"链表",b:"两个逆序链表表示非负整数，返回它们相加后的逆序链表。"},
+      {n:19,t:"删除链表的倒数第 N 个结点",s:"remove-nth-node-from-end-of-list",d:"中等",c:"链表",b:"删除链表倒数第 n 个节点并返回头节点。"},
+      {n:21,t:"合并两个有序链表",s:"merge-two-sorted-lists",d:"简单",c:"链表",b:"将两个递增链表合并成一个新的递增链表。"},
+      {n:23,t:"合并 K 个升序链表",s:"merge-k-sorted-lists",d:"困难",c:"链表",b:"合并 k 个递增链表并返回合并后的递增链表。"},
+      {n:24,t:"两两交换链表中的节点",s:"swap-nodes-in-pairs",d:"中等",c:"链表",b:"不修改节点值，两两交换链表中相邻节点。"},
+      {n:25,t:"K 个一组翻转链表",s:"reverse-nodes-in-k-group",d:"困难",c:"链表",b:"每 k 个节点为一组翻转链表，不足 k 个的尾部保持原序。"},
+      {n:138,t:"随机链表的复制",s:"copy-list-with-random-pointer",d:"中等",c:"链表",b:"深拷贝一条同时含 next 与 random 指针的链表。"},
+      {n:141,t:"环形链表",s:"linked-list-cycle",d:"简单",c:"链表",b:"判断单链表中是否存在环。"},
+      {n:142,t:"环形链表 II",s:"linked-list-cycle-ii",d:"中等",c:"链表",b:"若链表存在环，返回环的入口节点，否则返回空。"},
+      {n:146,t:"LRU 缓存",s:"lru-cache",d:"中等",c:"链表",b:"设计支持常数时间查询和写入的最近最少使用缓存。"},
+      {n:148,t:"排序链表",s:"sort-list",d:"中等",c:"链表",b:"在 O(n log n) 时间内将链表按升序排序。"},
+      {n:160,t:"相交链表",s:"intersection-of-two-linked-lists",d:"简单",c:"链表",b:"找出两个单链表开始相交的节点，不相交则返回空。"},
+      {n:206,t:"反转链表",s:"reverse-linked-list",d:"简单",c:"链表",b:"反转单链表并返回新的头节点。"},
+      {n:234,t:"回文链表",s:"palindrome-linked-list",d:"简单",c:"链表",b:"判断单链表的节点值序列是否构成回文。"},
+      {n:48,t:"旋转图像",s:"rotate-image",d:"中等",c:"矩阵",b:"原地将 n×n 矩阵顺时针旋转 90 度。"},
+      {n:54,t:"螺旋矩阵",s:"spiral-matrix",d:"中等",c:"矩阵",b:"按顺时针螺旋顺序返回矩阵中的所有元素。"},
+      {n:73,t:"矩阵置零",s:"set-matrix-zeroes",d:"中等",c:"矩阵",b:"若矩阵元素为零，将其所在行和列全部置零并原地完成。"},
+      {n:240,t:"搜索二维矩阵 II",s:"search-a-2d-matrix-ii",d:"中等",c:"矩阵",b:"在每行、每列均递增的矩阵中查找目标值。"},
+      {n:3,t:"无重复字符的最长子串",s:"longest-substring-without-repeating-characters",d:"中等",c:"滑动窗口",b:"求字符串中不含重复字符的最长连续子串长度。"},
+      {n:76,t:"最小覆盖子串",s:"minimum-window-substring",d:"困难",c:"滑动窗口",b:"找出源字符串中覆盖目标字符串全部字符的最短子串。"},
+      {n:239,t:"滑动窗口最大值",s:"sliding-window-maximum",d:"困难",c:"滑动窗口",b:"返回固定长度窗口从左向右移动时，每个窗口中的最大值。"},
+      {n:438,t:"找到字符串中所有字母异位词",s:"find-all-anagrams-in-a-string",d:"中等",c:"滑动窗口",b:"找出一个字符串中所有与目标字符串互为字母异位词的子串起点。"},
+      {n:20,t:"有效的括号",s:"valid-parentheses",d:"简单",c:"栈",b:"判断括号字符串中的括号类型和闭合顺序是否有效。"},
+      {n:84,t:"柱状图中最大的矩形",s:"largest-rectangle-in-histogram",d:"困难",c:"栈",b:"给定柱状图高度，求能够形成的最大矩形面积。"},
+      {n:155,t:"最小栈",s:"min-stack",d:"中等",c:"栈",b:"设计支持常数时间获取当前最小元素的栈。"},
+      {n:394,t:"字符串解码",s:"decode-string",d:"中等",c:"栈",b:"将形如 k[片段] 的嵌套编码字符串解码。"},
+      {n:739,t:"每日温度",s:"daily-temperatures",d:"中等",c:"栈",b:"对每天的温度，计算还需等待几天才会出现更高温度。"},
+      {n:11,t:"盛最多水的容器",s:"container-with-most-water",d:"中等",c:"双指针",b:"从若干竖线中选两条，与横轴组成可容纳最多水的容器。"},
+      {n:15,t:"三数之和",s:"3sum",d:"中等",c:"双指针",b:"找出数组中所有和为零且不重复的三元组。"},
+      {n:42,t:"接雨水",s:"trapping-rain-water",d:"困难",c:"双指针",b:"根据柱子高度计算下雨后能够接住的雨水总量。"},
+      {n:283,t:"移动零",s:"move-zeroes",d:"简单",c:"双指针",b:"原地把数组中的零移动到末尾，同时保持非零元素相对顺序。"},
+      {n:208,t:"实现 Trie（前缀树）",s:"implement-trie-prefix-tree",d:"中等",c:"前缀树",b:"实现字符串插入、完整单词查询和前缀查询。"},
+      {n:31,t:"下一个排列",s:"next-permutation",d:"中等",c:"技巧",b:"原地把整数数组变成字典序中的下一个排列。"},
+      {n:41,t:"缺失的第一个正数",s:"first-missing-positive",d:"困难",c:"技巧",b:"在线性时间和常数额外空间内找出数组缺失的最小正整数。"},
+      {n:53,t:"最大子数组和",s:"maximum-subarray",d:"中等",c:"技巧",b:"找出整数数组中元素和最大的连续非空子数组。"},
+      {n:56,t:"合并区间",s:"merge-intervals",d:"中等",c:"技巧",b:"合并所有重叠区间并返回互不重叠的区间集合。"},
+      {n:75,t:"颜色分类",s:"sort-colors",d:"中等",c:"技巧",b:"原地把只含 0、1、2 的数组按顺序排序。"},
+      {n:136,t:"只出现一次的数字",s:"single-number",d:"简单",c:"技巧",b:"数组中除一个元素只出现一次外其余均出现两次，找出该元素。"},
+      {n:169,t:"多数元素",s:"majority-element",d:"简单",c:"技巧",b:"找出数组中出现次数超过一半的元素。"},
+      {n:189,t:"轮转数组",s:"rotate-array",d:"中等",c:"技巧",b:"将数组中的元素向右轮转 k 个位置。"},
+      {n:238,t:"除自身以外数组的乘积",s:"product-of-array-except-self",d:"中等",c:"技巧",b:"不使用除法，返回每个位置之外其余元素的乘积。"},
+      {n:287,t:"寻找重复数",s:"find-the-duplicate-number",d:"中等",c:"技巧",b:"在含 n+1 个、取值为 1…n 的整数数组中找出重复数，不修改原数组。"}
+    ];
+
+    // 题意均为原创重述：页面内即可理解和作答，同时保留官方链接供核对。
+    const problemDetails = {
+      17:{d:`手机按键 2 到 9 分别对应若干英文字母。依次为 digits 中的每个数字选择一个对应字母，把选择结果按原数字顺序拼成字符串，列出所有可能组合；空输入没有组合。`,i:`digits：只由字符 2–9 组成的字符串。`,o:`返回所有可能的字母组合，顺序不限；digits 为空时返回空数组。`,k:`0 ≤ digits.length ≤ 4；每个字符都在 2–9 之间。`,e:`输入：digits = "23"\n输出：["ad","ae","af","bd","be","bf","cd","ce","cf"]`},
+      22:{d:`使用恰好 n 个左括号和 n 个右括号组成字符串。只保留任意前缀中左括号数不少于右括号数、最终两者数量相等的完整组合。`,i:`n：需要使用的括号对数。`,o:`返回全部有效括号字符串，顺序不限。`,k:`1 ≤ n ≤ 8；每个结果长度为 2n。`,e:`输入：n = 2\n输出：["(())","()()"]`},
+      39:{d:`从 candidates 中选择若干数字，使它们的总和等于 target。同一个数字可以重复选择；只按选择的数值和次数区分方案，不能返回排列顺序不同但内容相同的重复组合。`,i:`candidates：互不相同的正整数数组；target：正整数目标和。`,o:`返回所有不同组合，每个组合内及组合之间的顺序不限。`,k:`所有数均为正数；输入规模保证不同组合总数有限。`,e:`输入：candidates = [2,3,6,7], target = 7\n输出：[[2,2,3],[7]]`},
+      46:{d:`把 nums 中的每个元素恰好使用一次并安排到所有可能的位置，枚举全部排列。`,i:`nums：元素互不相同的整数数组。`,o:`返回 nums 的所有排列，顺序不限。`,k:`1 ≤ nums.length ≤ 6；数组内没有重复元素。`,e:`输入：nums = [1,2,3]\n输出：[[1,2,3],[1,3,2],[2,1,3],[2,3,1],[3,1,2],[3,2,1]]`},
+      51:{d:`在 n×n 棋盘中放置 n 个皇后，使任意两个皇后不在同一行、同一列或同一条对角线上。每种布局用 n 个长度为 n 的字符串表示，其中 Q 是皇后，. 是空位。`,i:`n：棋盘边长及皇后数量。`,o:`返回全部合法棋盘布局，顺序不限。`,k:`1 ≤ n ≤ 9；每行恰有一个皇后。`,e:`输入：n = 1\n输出：[["Q"]]`},
+      78:{d:`从 nums 中任意选择若干元素组成子集，每个元素最多使用一次。空集和 nums 本身也要包含，不能返回重复子集。`,i:`nums：元素互不相同的整数数组。`,o:`返回所有子集，子集内部和结果整体顺序不限。`,k:`0 ≤ nums.length ≤ 10；数组内元素互异。`,e:`输入：nums = [1,2]\n输出：[[],[1],[2],[1,2]]`},
+      79:{d:`从 board 的任意格开始，按上、下、左、右移动依次匹配 word 的字符。同一个格子在一条搜索路径中最多使用一次；不能斜向移动或越界。`,i:`board：字符矩阵；word：待查找字符串。`,o:`若存在一条完整匹配 word 的路径返回 true，否则返回 false。`,k:`board 和 word 非空；矩阵为规则矩形；字符均为英文字母。`,e:`输入：board = [["A","B"],["C","D"]], word = "AB"\n输出：true`},
+      131:{d:`在字符串 s 的字符间选择切分位置，使切出的每一段都是正读和反读相同的回文串，枚举所有可行切分。`,i:`s：非空字符串。`,o:`返回所有回文分割方案；每个方案按原字符串顺序列出各段。`,k:`1 ≤ s.length ≤ 16；s 由小写英文字母组成。`,e:`输入：s = "aab"\n输出：[["a","a","b"],["aa","b"]]`},
+
+      4:{d:`两个数组各自按非递减顺序排列。求把它们视为一个有序序列后的中位数：总长度为奇数取中间元素，为偶数取中间两个元素的平均值；目标时间复杂度为 O(log(m+n))。`,i:`nums1、nums2：两个有序整数数组，不能同时为空。`,o:`返回合并序列的中位数，可为小数。`,k:`0 ≤ m,n；1 ≤ m+n；数组元素位于常见整数范围。`,e:`输入：nums1 = [1,3], nums2 = [2]\n输出：2`},
+      33:{d:`nums 原本严格递增，之后可能在某个位置旋转。请在不恢复完整数组的前提下查找 target。`,i:`nums：元素互异的旋转有序数组；target：整数。`,o:`找到则返回 target 的下标，否则返回 -1。`,k:`1 ≤ nums.length；要求使用 O(log n) 时间。`,e:`输入：nums = [4,5,6,7,0,1,2], target = 0\n输出：4`},
+      34:{d:`在非递减数组中确定 target 连续出现区间的左右边界。若 target 不存在，两个边界都记为 -1。`,i:`nums：非递减整数数组；target：整数。`,o:`返回 [first,last]，分别是首次和最后一次出现的下标。`,k:`允许空数组；目标时间复杂度为 O(log n)。`,e:`输入：nums = [5,7,7,8,8,10], target = 8\n输出：[3,4]`},
+      35:{d:`在严格递增数组中查找 target；若不存在，确定插入 target 后仍保持递增的下标。`,i:`nums：严格递增整数数组；target：整数。`,o:`返回已有位置或应插入的位置。`,k:`1 ≤ nums.length；要求 O(log n) 时间。`,e:`输入：nums = [1,3,5,6], target = 2\n输出：1`},
+      74:{d:`矩阵每行从左到右递增，并且每行首元素严格大于上一行末元素。判断 target 是否位于矩阵中。`,i:`matrix：满足条件的整数矩阵；target：整数。`,o:`存在 target 返回 true，否则返回 false。`,k:`矩阵非空且为规则矩形；目标复杂度 O(log(mn))。`,e:`输入：matrix = [[1,3,5],[7,9,11]], target = 9\n输出：true`},
+      153:{d:`一个严格递增数组经过一次旋转，旋转次数可能为零。找出其中最小的元素。`,i:`nums：元素互异的旋转有序数组。`,o:`返回数组中的最小值。`,k:`1 ≤ nums.length；要求 O(log n) 时间。`,e:`输入：nums = [3,4,5,1,2]\n输出：1`},
+
+      94:{d:`按“左子树、根节点、右子树”的顺序访问二叉树中的所有节点。`,i:`root：二叉树根节点，可能为空。`,o:`返回中序遍历得到的节点值数组。`,k:`节点数量可为 0；节点值为整数。`,e:`输入：root = [1,null,2,3]\n输出：[1,3,2]`},
+      98:{d:`判断二叉树是否为严格二叉搜索树：每个节点左子树的所有值都小于该节点，右子树的所有值都大于该节点，并且左右子树也满足同一规则。`,i:`root：二叉树根节点。`,o:`满足条件返回 true，否则返回 false。`,k:`不能只比较父子节点；节点值可能达到整数边界。`,e:`输入：root = [2,1,3]\n输出：true`},
+      101:{d:`若一棵树沿根节点的垂直轴翻转后与自身一致，则它是对称的。比较对应位置的节点值和结构。`,i:`root：二叉树根节点，可能为空。`,o:`对称返回 true，否则返回 false。`,k:`空树视为对称；节点值为整数。`,e:`输入：root = [1,2,2,3,4,4,3]\n输出：true`},
+      102:{d:`从根节点开始逐层访问二叉树；同一层按从左到右的顺序记录。`,i:`root：二叉树根节点，可能为空。`,o:`返回二维数组，第 i 个子数组包含第 i 层的节点值。`,k:`空树返回空数组。`,e:`输入：root = [3,9,20,null,null,15,7]\n输出：[[3],[9,20],[15,7]]`},
+      104:{d:`树的深度是从根节点到最远叶子节点所经过的节点数。计算给定二叉树的最大深度。`,i:`root：二叉树根节点，可能为空。`,o:`返回非负整数最大深度；空树深度为 0。`,k:`节点值不影响深度。`,e:`输入：root = [3,9,20,null,null,15,7]\n输出：3`},
+      105:{d:`preorder 给出根、左、右的访问顺序，inorder 给出左、根、右的访问顺序。根据两者还原唯一二叉树。`,i:`preorder、inorder：包含相同且互不重复节点值的数组。`,o:`返回构造出的二叉树根节点。`,k:`两个数组长度相同；所有值互异且遍历结果合法。`,e:`输入：preorder = [3,9,20,15,7], inorder = [9,3,15,20,7]\n输出：[3,9,20,null,null,15,7]`},
+      108:{d:`把严格递增数组转换成二叉搜索树，并使任意节点左右子树的高度差不超过 1。存在多种答案时返回任意一种。`,i:`nums：严格递增整数数组。`,o:`返回一棵高度平衡二叉搜索树的根节点。`,k:`允许空数组；每个数组元素使用一次。`,e:`输入：nums = [-10,-3,0,5,9]\n输出示例：[0,-3,9,-10,null,5]`},
+      114:{d:`原地改写二叉树，使其成为只使用 right 指针的单链表。链表节点顺序必须与原树的前序遍历一致，所有 left 指针均设为空。`,i:`root：二叉树根节点。`,o:`不返回新树；直接修改原树。`,k:`不得新建一棵包含复制节点的树。`,e:`输入：root = [1,2,5,3,4,null,6]\n修改后：1 → 2 → 3 → 4 → 5 → 6`},
+      124:{d:`路径由二叉树中若干相邻节点组成，同一节点最多出现一次；路径可以从任意节点开始和结束，不必经过根。求至少包含一个节点的路径最大节点值之和。`,i:`root：非空二叉树根节点，节点值可为负。`,o:`返回所有合法路径中的最大和。`,k:`路径不能分叉；答案保证可用常见整数类型表示。`,e:`输入：root = [-10,9,20,null,null,15,7]\n输出：42`},
+      199:{d:`站在二叉树右侧观察，从上到下记录每一层最靠右、未被遮挡的节点。`,i:`root：二叉树根节点，可能为空。`,o:`返回各层右侧可见节点值组成的数组。`,k:`空树返回空数组。`,e:`输入：root = [1,2,3,null,5,null,4]\n输出：[1,3,4]`},
+      226:{d:`对二叉树中的每个节点交换其左、右子树，得到原树的镜像。`,i:`root：二叉树根节点，可能为空。`,o:`返回翻转后的根节点。`,k:`可原地修改，也可按题意返回等价镜像结构。`,e:`输入：root = [4,2,7,1,3,6,9]\n输出：[4,7,2,9,6,3,1]`},
+      230:{d:`二叉搜索树的中序遍历为严格递增序列。找出按值从小到大排列后的第 k 个节点值，k 从 1 开始。`,i:`root：非空二叉搜索树；k：合法正整数。`,o:`返回第 k 小的节点值。`,k:`1 ≤ k ≤ 节点数；树满足严格 BST 性质。`,e:`输入：root = [3,1,4,null,2], k = 1\n输出：1`},
+      236:{d:`给定树中两个不同节点 p、q。最近公共祖先是同时作为两者祖先且深度最大的节点；节点也可以是自己的祖先。`,i:`root：二叉树根节点；p、q：树内节点引用。`,o:`返回 p 与 q 的最近公共祖先节点。`,k:`p、q 一定存在于树中且互不相同。`,e:`输入：root = [3,5,1,6,2,0,8,null,null,7,4], p = 5, q = 1\n输出：节点 3`},
+      437:{d:`路径必须沿父节点到子节点方向连续向下，但可以从任意节点开始、在任意后代结束。统计节点值之和等于 targetSum 的非空路径数量。`,i:`root：二叉树根节点；targetSum：整数。`,o:`返回符合条件的路径条数。`,k:`节点值可正可负；不同起止位置视为不同路径。`,e:`输入：root = [10,5,-3,3,2,null,11,3,-2,null,1], targetSum = 8\n输出：3`},
+      543:{d:`二叉树的直径是任意两个节点之间最长简单路径的边数。该路径可以经过根，也可以完全位于某棵子树。`,i:`root：二叉树根节点。`,o:`返回最大边数；只有一个节点时为 0。`,k:`空树可按 0 处理。`,e:`输入：root = [1,2,3,4,5]\n输出：3`},
+
+      5:{d:`在字符串 s 中找出长度最大的连续片段，使该片段从左到右与从右到左读取完全相同。若有多个最长答案，返回任意一个。`,i:`s：非空字符串。`,o:`返回 s 的一个最长回文子串。`,k:`1 ≤ s.length；字符由数字或英文字母组成。`,e:`输入：s = "babad"\n输出示例："bab"`},
+      32:{d:`字符串只含左右括号。找出其中最长的连续子串，使括号可以正确配对且嵌套顺序合法。`,i:`s：由 ( 和 ) 组成的字符串。`,o:`返回最长有效括号子串的长度。`,k:`s 可为空；只计算连续子串。`,e:`输入：s = ")()())"\n输出：4`},
+      62:{d:`机器人位于 m×n 网格左上角，每一步只能向右或向下移动一格。统计到达右下角的不同路径数量。`,i:`m：行数；n：列数。`,o:`返回路径总数。`,k:`m,n 为正整数；答案保证可用常见整数类型表示。`,e:`输入：m = 3, n = 2\n输出：3`},
+      64:{d:`从非负整数网格左上角出发，每步只能向右或向下，直到右下角。路径和包含经过的所有格子，求最小路径和。`,i:`grid：非空非负整数矩阵。`,o:`返回最小路径和。`,k:`矩阵为规则矩形；起点和终点的值都计入。`,e:`输入：grid = [[1,3,1],[1,5,1],[4,2,1]]\n输出：7`},
+      70:{d:`到达第 n 级台阶时，每次可以向上走 1 级或 2 级。不同步长序列视为不同方法。`,i:`n：目标台阶编号。`,o:`返回到达第 n 级的不同方法数。`,k:`1 ≤ n ≤ 45。`,e:`输入：n = 3\n输出：3`},
+      72:{d:`允许对 word1 执行插入一个字符、删除一个字符或替换一个字符。求把 word1 变为 word2 所需的最少操作次数。`,i:`word1、word2：两个字符串，可为空。`,o:`返回最少编辑次数。`,k:`字符串由小写英文字母组成。`,e:`输入：word1 = "horse", word2 = "ros"\n输出：3`},
+      118:{d:`生成杨辉三角的前 numRows 行。每行首尾为 1，其余元素等于上一行相邻两个元素之和。`,i:`numRows：需要生成的行数。`,o:`返回二维数组，从第 1 行 [1] 开始。`,k:`1 ≤ numRows ≤ 30。`,e:`输入：numRows = 4\n输出：[[1],[1,1],[1,2,1],[1,3,3,1]]`},
+      139:{d:`判断 s 能否被切分成一个或多个字典单词的连续拼接。字典中的同一单词可以重复使用。`,i:`s：非空字符串；wordDict：互不重复的单词数组。`,o:`能完整切分返回 true，否则返回 false。`,k:`所有字符串由小写英文字母组成。`,e:`输入：s = "applepenapple", wordDict = ["apple","pen"]\n输出：true`},
+      152:{d:`在整数数组中选择至少一个相邻元素组成连续子数组，求其元素乘积的最大值。`,i:`nums：非空整数数组。`,o:`返回最大乘积。`,k:`元素可正、可负、可为零；答案保证可用常见整数类型表示。`,e:`输入：nums = [2,3,-2,4]\n输出：6`},
+      198:{d:`一排房屋各有一定金额。若在同一晚偷取两间相邻房屋会触发警报，求不触发警报时可偷到的最大金额。`,i:`nums：每间房屋的非负金额数组。`,o:`返回可取得的最大总金额。`,k:`允许不偷某间房；数组非空。`,e:`输入：nums = [2,7,9,3,1]\n输出：12`},
+      279:{d:`把正整数 n 表示为若干完全平方数之和，平方数可以重复使用。求所需项数的最小值。`,i:`n：正整数。`,o:`返回最少完全平方数数量。`,k:`1 ≤ n；1、4、9 等均可使用。`,e:`输入：n = 12\n输出：3`},
+      300:{d:`从 nums 中按原下标递增的顺序选择若干元素，使所选数值严格递增；元素不要求连续。求可选的最大长度。`,i:`nums：非空整数数组。`,o:`返回最长严格递增子序列长度。`,k:`相等元素不能同时构成严格递增关系。`,e:`输入：nums = [10,9,2,5,3,7,101,18]\n输出：4`},
+      322:{d:`用给定面额的硬币凑出恰好 amount 的金额，每种面额可使用任意次。求硬币总数最少的方案。`,i:`coins：不同正整数面额；amount：非负目标金额。`,o:`返回最少硬币数；无法凑出返回 -1，amount 为 0 返回 0。`,k:`硬币数量无限。`,e:`输入：coins = [1,2,5], amount = 11\n输出：3`},
+      416:{d:`判断能否把正整数数组划分为两个不相交子集，使每个元素恰好属于其中一个子集且两边元素和相等。`,i:`nums：非空正整数数组。`,o:`可以等和划分返回 true，否则返回 false。`,k:`每个元素只能使用一次。`,e:`输入：nums = [1,5,11,5]\n输出：true`},
+      1143:{d:`从 text1 和 text2 中分别删除若干字符但保持剩余字符原顺序，找出两者可以得到的最长相同序列长度。`,i:`text1、text2：两个非空字符串。`,o:`返回最长公共子序列长度。`,k:`子序列不要求连续；字符为小写英文字母。`,e:`输入：text1 = "abcde", text2 = "ace"\n输出：3`},
+
+      200:{d:`字符网格中 1 表示陆地、0 表示水。上下左右相连的陆地属于同一岛屿，边界外视为水；统计彼此分离的岛屿数量。`,i:`grid：只含字符 0 和 1 的非空矩阵。`,o:`返回岛屿数量。`,k:`只按四个正方向连通，斜角接触不算相连。`,e:`输入：grid = [["1","1","0"],["0","1","0"],["0","0","1"]]\n输出：2`},
+      207:{d:`完成课程可能需要先完成其他课程。先修关系 [a,b] 表示修 a 前必须先修 b；判断所有课程能否安排出不违反依赖的学习顺序。`,i:`numCourses：课程数，编号 0…numCourses-1；prerequisites：先修关系数组。`,o:`不存在依赖环返回 true，否则返回 false。`,k:`关系中的课程编号合法；可能没有先修关系。`,e:`输入：numCourses = 2, prerequisites = [[1,0]]\n输出：true`},
+      994:{d:`网格中 0 为空、1 为新鲜橘子、2 为腐烂橘子。每分钟，腐烂橘子会使上下左右相邻的新鲜橘子腐烂。求所有新鲜橘子腐烂的最短时间。`,i:`grid：由 0、1、2 组成的矩阵。`,o:`返回最少分钟数；若永远有新鲜橘子则返回 -1；初始无新鲜橘子返回 0。`,k:`传播同时发生且只沿四个方向。`,e:`输入：grid = [[2,1,1],[1,1,0],[0,1,1]]\n输出：4`},
+
+      45:{d:`nums[i] 表示从下标 i 最多能向右跳多少步。从下标 0 出发，在保证终点可达的前提下求到达最后下标的最少跳跃次数。`,i:`nums：非负整数数组。`,o:`返回最少跳跃次数。`,k:`数组非空；输入保证可以到达末尾。`,e:`输入：nums = [2,3,1,1,4]\n输出：2`},
+      55:{d:`nums[i] 表示从下标 i 最多能向右跳多少步。判断从下标 0 出发是否能到达最后一个下标。`,i:`nums：非负整数数组。`,o:`可达返回 true，否则返回 false。`,k:`数组非空；可以选择跳 0 到 nums[i] 步。`,e:`输入：nums = [3,2,1,0,4]\n输出：false`},
+      121:{d:`prices[i] 是第 i 天股价。只能选择一天买入，并在之后某一天卖出，最多完成一笔交易，求最大利润。`,i:`prices：非空正整数数组。`,o:`返回最大利润；若无法获利返回 0。`,k:`买入必须早于卖出；不能同时持有多笔交易。`,e:`输入：prices = [7,1,5,3,6,4]\n输出：5`},
+      763:{d:`把字符串切成尽可能多的连续片段，使任意字母只属于一个片段。所有片段按顺序拼接必须还原原字符串。`,i:`s：由小写英文字母组成的字符串。`,o:`返回每个片段的长度数组。`,k:`每个字符都必须被包含且不能改变顺序。`,e:`输入：s = "ababcbacadefegdehijhklij"\n输出：[9,7,8]`},
+
+      1:{d:`在 nums 中选择两个不同下标，使对应元素之和等于 target。每个输入恰有一个有效答案，不能重复使用同一元素。`,i:`nums：整数数组；target：整数。`,o:`返回两个下标，顺序不限。`,k:`恰有一组答案；同一位置不能使用两次。`,e:`输入：nums = [2,7,11,15], target = 9\n输出：[0,1]`},
+      49:{d:`若两个字符串包含相同字符且每个字符出现次数相同，它们互为字母异位词。把输入字符串按此关系分组。`,i:`strs：字符串数组。`,o:`返回二维数组，每个子数组是一组异位词；组内及组间顺序不限。`,k:`字符串由小写英文字母组成；空字符串也应正确分组。`,e:`输入：strs = ["eat","tea","tan","ate","nat","bat"]\n输出示例：[["eat","tea","ate"],["tan","nat"],["bat"]]`},
+      128:{d:`在未排序整数数组中寻找由连续整数值组成的最长序列，例如 1,2,3。序列元素在原数组中的位置不必相邻。`,i:`nums：整数数组。`,o:`返回最长连续序列长度；空数组返回 0。`,k:`目标时间复杂度为 O(n)。`,e:`输入：nums = [100,4,200,1,3,2]\n输出：4`},
+      560:{d:`统计 nums 中所有连续、非空子数组，使其元素总和恰好等于 k。不同起止下标视为不同子数组。`,i:`nums：整数数组；k：整数。`,o:`返回符合条件的子数组个数。`,k:`数组元素可正、可负、可为零。`,e:`输入：nums = [1,1,1], k = 2\n输出：2`},
+
+      215:{d:`将 nums 按从大到小排序后，第 k 个元素称为第 k 大元素；重复值按出现次数计入名次。无需返回排序后的数组。`,i:`nums：非空整数数组；k：1 到数组长度之间的整数。`,o:`返回第 k 大的数值。`,k:`不是第 k 个不同元素。`,e:`输入：nums = [3,2,1,5,6,4], k = 2\n输出：5`},
+      295:{d:`实现 MedianFinder：addNum(num) 把整数加入数据流；findMedian() 返回当前所有数字的中位数，偶数个数字时返回中间两个数的平均值。`,i:`按顺序给出若干 addNum 与 findMedian 操作。`,o:`构造操作无返回；查询操作返回当前中位数。`,k:`调用 findMedian 前至少加入一个数；需要支持持续插入。`,e:`操作：addNum(1), addNum(2), findMedian(), addNum(3), findMedian()\n输出：1.5, 2`},
+      347:{d:`统计 nums 中每个整数出现的次数，找出频率最高的 k 个不同元素。输入保证答案集合唯一。`,i:`nums：非空整数数组；k：不超过不同元素数量的正整数。`,o:`返回 k 个高频元素，顺序不限。`,k:`应优于完整 O(n log n) 排序的朴素方案。`,e:`输入：nums = [1,1,1,2,2,3], k = 2\n输出：[1,2]`},
+
+      2:{d:`两个非空链表分别以逆序数字存储一个非负整数，每个节点保存一位。把两个整数相加，并用相同逆序格式返回结果；最高位之外没有前导零。`,i:`l1、l2：表示两个非负整数的链表头节点。`,o:`返回表示两数之和的新链表头节点。`,k:`每个节点值在 0–9；链表非空。`,e:`输入：l1 = [2,4,3], l2 = [5,6,4]\n输出：[7,0,8]`},
+      19:{d:`删除单链表从尾部数第 n 个节点。倒数第 1 个是尾节点，删除后返回可能发生变化的头节点。`,i:`head：单链表头节点；n：合法正整数。`,o:`返回删除后的链表头节点。`,k:`1 ≤ n ≤ 链表长度。`,e:`输入：head = [1,2,3,4,5], n = 2\n输出：[1,2,3,5]`},
+      21:{d:`把两个按非递减顺序排列的单链表合并为一个同样有序的链表，可复用原有节点。`,i:`list1、list2：两个有序链表头节点，均可为空。`,o:`返回合并后链表的头节点。`,k:`节点值可重复；输出包含两个链表的全部节点。`,e:`输入：list1 = [1,2,4], list2 = [1,3,4]\n输出：[1,1,2,3,4,4]`},
+      23:{d:`给定 k 条各自按非递减顺序排列的链表，把全部节点合并成一条有序链表。`,i:`lists：链表头节点数组，其中元素可为空。`,o:`返回合并后链表头节点；没有节点时返回空。`,k:`应处理 k 为 0 以及空链表。`,e:`输入：lists = [[1,4,5],[1,3,4],[2,6]]\n输出：[1,1,2,3,4,4,5,6]`},
+      24:{d:`按相邻节点成对交换链表：第 1、2 个交换，第 3、4 个交换。若最后只剩一个节点则保持原位；不能只交换节点值。`,i:`head：单链表头节点。`,o:`返回交换后的头节点。`,k:`必须调整节点连接关系。`,e:`输入：head = [1,2,3,4]\n输出：[2,1,4,3]`},
+      25:{d:`从头开始每 k 个节点为一组翻转链表。最后不足 k 个节点的一组保持原顺序；只能使用常数级额外空间修改节点连接。`,i:`head：链表头节点；k：正整数。`,o:`返回分组翻转后的头节点。`,k:`1 ≤ k ≤ 链表长度；不能只交换节点值。`,e:`输入：head = [1,2,3,4,5], k = 2\n输出：[2,1,4,3,5]`},
+      138:{d:`链表节点除 next 外还有 random 指针，可指向任意节点或空。创建深拷贝：新链表结构与指向关系一致，但所有新节点都与原节点不同。`,i:`head：随机链表头节点。`,o:`返回复制链表的头节点。`,k:`复制节点的 next 与 random 只能指向复制链表中的节点或空。`,e:`输入表示：[(7,null),(13,0),(11,1)]\n输出：结构相同且节点完全独立的新链表`},
+      141:{d:`若沿单链表 next 指针不断前进会再次遇到某个已访问节点，则链表存在环。判断是否存在这种情况。`,i:`head：单链表头节点。`,o:`有环返回 true，否则返回 false。`,k:`不能通过修改链表结构破坏输入。`,e:`输入：head = [3,2,0,-4]，尾节点连接到下标 1\n输出：true`},
+      142:{d:`若单链表有环，返回从头节点出发第一次进入环的节点；若无环返回空。`,i:`head：单链表头节点。`,o:`返回环入口节点引用或 null。`,k:`不允许修改链表；目标额外空间 O(1)。`,e:`输入：head = [3,2,0,-4]，尾节点连接到下标 1\n输出：下标 1 的节点`},
+      146:{d:`实现固定容量的 LRUCache。get(key) 返回值并把该键记为最近使用；不存在返回 -1。put(key,value) 新增或更新并记为最近使用，超容量时淘汰最久未使用键。`,i:`capacity 及一系列 get/put 操作。`,o:`get 返回对应值或 -1；put 无返回。`,k:`get 与 put 的平均时间复杂度都必须为 O(1)。`,e:`容量 2；put(1,1), put(2,2), get(1), put(3,3), get(2)\n输出：1, -1`},
+      148:{d:`把单链表中的全部节点按节点值非递减排列，返回排序后的链表。`,i:`head：单链表头节点，可能为空。`,o:`返回排序后的头节点。`,k:`目标时间复杂度 O(n log n)，额外空间尽量为 O(1)。`,e:`输入：head = [4,2,1,3]\n输出：[1,2,3,4]`},
+      160:{d:`两条无环单链表可能从某个节点开始共享同一段节点。找出第一个共享节点；比较的是节点身份而不是数值。`,i:`headA、headB：两条无环链表头节点。`,o:`相交则返回交点节点，否则返回 null。`,k:`不得修改链表；期望 O(1) 额外空间。`,e:`A: 4→1→8→4→5，B: 5→6→1↗8\n输出：值为 8 的共享节点`},
+      206:{d:`把单链表的 next 方向完全反转，使原尾节点成为新头节点。`,i:`head：单链表头节点，可能为空。`,o:`返回反转后的头节点。`,k:`每个原节点恰好出现一次。`,e:`输入：head = [1,2,3,4,5]\n输出：[5,4,3,2,1]`},
+      234:{d:`判断单链表从头到尾的节点值序列是否与从尾到头相同。`,i:`head：非空单链表头节点。`,o:`是回文返回 true，否则返回 false。`,k:`进阶目标为 O(n) 时间和 O(1) 额外空间。`,e:`输入：head = [1,2,2,1]\n输出：true`},
+
+      48:{d:`将 n×n 矩阵顺时针旋转 90 度。必须直接在输入矩阵上修改，不能另建同规模结果矩阵。`,i:`matrix：正方形整数矩阵。`,o:`无返回；原地修改 matrix。`,k:`行数等于列数；要求 O(1) 额外矩阵空间。`,e:`输入：[[1,2,3],[4,5,6],[7,8,9]]\n修改后：[[7,4,1],[8,5,2],[9,6,3]]`},
+      54:{d:`从矩阵左上角开始，沿上边向右、右边向下、下边向左、左边向上，逐层向内按顺时针螺旋顺序访问全部元素。`,i:`matrix：非空规则矩形。`,o:`返回按螺旋顺序得到的一维数组。`,k:`每个元素恰好访问一次。`,e:`输入：[[1,2,3],[4,5,6],[7,8,9]]\n输出：[1,2,3,6,9,8,7,4,5]`},
+      73:{d:`若矩阵某个位置原本为 0，则把该位置所在整行和整列全部改为 0。需要同时依据原始零位置生效。`,i:`matrix：整数矩阵。`,o:`无返回；原地修改 matrix。`,k:`不能让修改过程中新增的 0 继续错误扩散；进阶使用 O(1) 额外空间。`,e:`输入：[[1,1,1],[1,0,1],[1,1,1]]\n修改后：[[1,0,1],[0,0,0],[1,0,1]]`},
+      240:{d:`矩阵每行从左到右非递减、每列从上到下非递减。判断 target 是否存在于矩阵。`,i:`matrix：满足条件的矩阵；target：整数。`,o:`存在返回 true，否则返回 false。`,k:`矩阵可为空；应利用行列有序性。`,e:`输入：matrix = [[1,4,7],[2,5,8],[3,6,9]], target = 6\n输出：true`},
+
+      3:{d:`在 s 中寻找最长连续子串，使其中任意字符最多出现一次。`,i:`s：字符串，可包含字母、数字、符号或空格。`,o:`返回最长无重复字符子串的长度。`,k:`子串必须连续；空字符串返回 0。`,e:`输入：s = "abcabcbb"\n输出：3`},
+      76:{d:`在 s 中寻找最短连续子串，使它包含 t 中的全部字符及对应出现次数。若不存在返回空字符串；若存在，输入保证最短答案唯一。`,i:`s：源字符串；t：目标字符集合，可含重复字符。`,o:`返回最小覆盖子串或空字符串。`,k:`字符区分大小写；覆盖必须满足每个字符的数量。`,e:`输入：s = "ADOBECODEBANC", t = "ABC"\n输出："BANC"`},
+      239:{d:`长度为 k 的窗口从 nums 左端逐格移动到右端。对每个窗口记录其中的最大值。`,i:`nums：整数数组；k：合法窗口长度。`,o:`返回每个窗口最大值组成的数组，共 n-k+1 个。`,k:`1 ≤ k ≤ nums.length；期望线性时间。`,e:`输入：nums = [1,3,-1,-3,5,3,6,7], k = 3\n输出：[3,3,5,5,6,7]`},
+      438:{d:`找出 s 中所有长度等于 p.length 的连续子串，使其与 p 包含相同字符及相同出现次数。`,i:`s：被搜索字符串；p：模式字符串。`,o:`返回所有符合条件子串的起始下标，按递增顺序。`,k:`s、p 由小写英文字母组成；若 p 比 s 长返回空数组。`,e:`输入：s = "cbaebabacd", p = "abc"\n输出：[0,6]`},
+
+      20:{d:`字符串只由圆括号、方括号和花括号组成。每个右括号必须按正确类型闭合最近尚未闭合的左括号，且最终不能有未闭合括号。`,i:`s：仅含 ()[]{} 的字符串。`,o:`括号序列有效返回 true，否则返回 false。`,k:`空序列可视为有效；闭合顺序必须正确。`,e:`输入：s = "([{}])"\n输出：true`},
+      84:{d:`相邻宽度为 1 的柱子高度由 heights 给出。在柱状图内选择连续若干柱子形成轴对齐矩形，矩形高度不能超过其中最矮柱，求最大面积。`,i:`heights：非负整数数组。`,o:`返回可形成的最大矩形面积。`,k:`矩形必须覆盖连续柱子；单根柱子也是合法矩形。`,e:`输入：heights = [2,1,5,6,2,3]\n输出：10`},
+      155:{d:`实现 MinStack，支持 push、pop、top，以及在常数时间内查询当前最小元素 getMin。`,i:`按顺序给出构造、push(val)、pop()、top()、getMin() 操作。`,o:`top 和 getMin 返回整数；其他操作无返回。`,k:`pop、top、getMin 只在栈非空时调用；所有操作 O(1)。`,e:`操作：push(-2), push(0), push(-3), getMin(), pop(), top(), getMin()\n输出：-3, 0, -2`},
+      394:{d:`编码形式为 k[encoded]，表示方括号内片段重复 k 次；片段可嵌套，普通字母原样保留。把整个字符串完全解码。`,i:`s：合法编码字符串。`,o:`返回解码后的字符串。`,k:`k 为正整数；括号匹配；原始文本不含数字。`,e:`输入：s = "3[a2[c]]"\n输出："accaccacc"`},
+      739:{d:`temperatures[i] 是第 i 天温度。对每一天找出之后第一个温度严格更高的日子，记录需要等待的天数；若不存在则记 0。`,i:`temperatures：整数温度数组。`,o:`返回等长整数数组 answer。`,k:`更高必须严格大于当前温度。`,e:`输入：[73,74,75,71,69,72,76,73]\n输出：[1,1,4,2,1,1,0,0]`},
+
+      11:{d:`第 i 条竖线位于横坐标 i，高度为 height[i]。选择两条线与横轴形成容器，容量为两线间距乘较短线高度；求最大容量。`,i:`height：非负整数数组，至少两项。`,o:`返回最大可容纳面积。`,k:`容器不能倾斜；只选两条边界线。`,e:`输入：height = [1,8,6,2,5,4,8,3,7]\n输出：49`},
+      15:{d:`在 nums 中选择三个不同下标，使对应元素之和为 0。返回所有数值组合，并去除仅下标或排列顺序不同的重复三元组。`,i:`nums：整数数组。`,o:`返回所有不重复三元组，顺序不限。`,k:`每个三元组内元素来自三个不同位置。`,e:`输入：nums = [-1,0,1,2,-1,-4]\n输出：[[-1,-1,2],[-1,0,1]]`},
+      42:{d:`每个数组元素表示宽度为 1 的柱子高度。下雨后水会被左右更高柱子围住，计算所有位置能够存留的水量总和。`,i:`height：非负整数数组。`,o:`返回接住的水量总和。`,k:`数组长度不足 3 时结果为 0。`,e:`输入：height = [0,1,0,2,1,0,1,3,2,1,2,1]\n输出：6`},
+      283:{d:`原地把 nums 中所有 0 移到数组末尾，同时保持所有非零元素的相对顺序不变。`,i:`nums：整数数组。`,o:`无返回；原地修改 nums。`,k:`不能复制出另一个同长度数组。`,e:`输入：nums = [0,1,0,3,12]\n修改后：[1,3,12,0,0]`},
+
+      208:{d:`实现 Trie：insert(word) 插入单词；search(word) 判断完整单词是否已插入；startsWith(prefix) 判断是否存在以 prefix 开头的已插入单词。`,i:`按顺序给出 Trie 构造及三类字符串操作。`,o:`search 与 startsWith 返回布尔值；insert 无返回。`,k:`单词和前缀由小写英文字母组成；可重复插入。`,e:`insert("apple"), search("apple"), search("app"), startsWith("app")\n输出：true, false, true`},
+
+      31:{d:`把 nums 看作一个排列，原地变为字典序中紧邻的下一个更大排列。若当前已是最大排列，则改为最小的升序排列。`,i:`nums：整数数组，元素可重复。`,o:`无返回；原地修改 nums。`,k:`只能使用常数额外空间。`,e:`输入：nums = [1,2,3]\n修改后：[1,3,2]`},
+      41:{d:`找出 nums 中没有出现的最小正整数。0、负数以及大于数组长度很多的数不影响更小答案。`,i:`nums：未排序整数数组。`,o:`返回缺失的最小正整数。`,k:`要求 O(n) 时间和 O(1) 额外空间。`,e:`输入：nums = [3,4,-1,1]\n输出：2`},
+      53:{d:`在 nums 中选择至少一个连续元素，求能够取得的最大元素和。`,i:`nums：非空整数数组。`,o:`返回最大连续子数组和。`,k:`元素可全为负，此时应选择最大的单个元素。`,e:`输入：nums = [-2,1,-3,4,-1,2,1,-5,4]\n输出：6`},
+      56:{d:`每个区间 [start,end] 包含两个端点。把所有相互重叠或接触的区间合并，返回覆盖范围相同且两两不重叠的区间集合。`,i:`intervals：区间数组，start ≤ end。`,o:`返回按任意顺序或起点顺序排列的合并区间。`,k:`[1,4] 与 [4,5] 视为重叠。`,e:`输入：[[1,3],[2,6],[8,10],[15,18]]\n输出：[[1,6],[8,10],[15,18]]`},
+      75:{d:`数组只含 0、1、2，分别代表三种颜色。原地重排为所有 0 在前、1 居中、2 在后。`,i:`nums：只含 0、1、2 的数组。`,o:`无返回；原地修改 nums。`,k:`不能调用库排序；进阶一次遍历、常数空间。`,e:`输入：nums = [2,0,2,1,1,0]\n修改后：[0,0,1,1,2,2]`},
+      136:{d:`nums 中除一个元素只出现一次外，其余每个元素都恰好出现两次。找出只出现一次的元素。`,i:`nums：非空整数数组。`,o:`返回唯一只出现一次的数。`,k:`要求线性时间和常数额外空间。`,e:`输入：nums = [4,1,2,1,2]\n输出：4`},
+      169:{d:`nums 中存在一个元素，其出现次数严格超过数组长度的一半。找出该多数元素。`,i:`nums：非空整数数组。`,o:`返回多数元素。`,k:`输入保证多数元素存在；进阶 O(n) 时间、O(1) 空间。`,e:`输入：nums = [2,2,1,1,1,2,2]\n输出：2`},
+      189:{d:`把数组向右轮转 k 步：每一步把末尾元素移动到开头。k 可能大于数组长度，要求得到等价最终结果。`,i:`nums：整数数组；k：非负整数。`,o:`无返回；原地修改 nums。`,k:`数组非空；有效轮转步数为 k mod n。`,e:`输入：nums = [1,2,3,4,5,6,7], k = 3\n修改后：[5,6,7,1,2,3,4]`},
+      238:{d:`对 nums 的每个下标 i，计算除 nums[i] 之外其余所有元素的乘积。不能使用除法，并在线性时间内完成。`,i:`nums：整数数组，长度至少 2。`,o:`返回等长数组 answer，其中 answer[i] 为除自身外的乘积。`,k:`前缀与后缀乘积保证在常见整数范围；输出数组不计额外空间。`,e:`输入：nums = [1,2,3,4]\n输出：[24,12,8,6]`},
+      287:{d:`nums 长度为 n+1，每个值都在 1…n，因此至少有一个值重复。输入保证只有一种重复数，但它可能出现多次；在不修改数组的条件下找出它。`,i:`nums：满足上述条件的整数数组。`,o:`返回重复的数值。`,k:`只使用 O(1) 额外空间，目标时间优于 O(n²)。`,e:`输入：nums = [1,3,4,2,2]\n输出：2`}
+    };
+
+    const $ = (selector) => document.querySelector(selector);
+    const elements = {
+      difficulty: $("#difficultyFilter"), category: $("#categoryFilter"), random: $("#randomButton"), overview: $("#overviewButton"),
+      index: $("#questionIndex"),
+      number: $("#problemNumber"), title: $("#problemTitle"), summary: $("#problemSummary"), link: $("#problemLink"),
+      description: $("#problemDescription"), input: $("#problemInput"), output: $("#problemOutput"),
+      constraints: $("#problemConstraints"), example: $("#problemExample"),
+      language: $("#languageSelect"), code: $("#codeEditor"), notes: $("#notesEditor"), copy: $("#copyButton"),
+      practice: $("#practiceButton"), wrong: $("#wrongButton"), progressText: $("#progressText"), progressBar: $("#progressBar"), toolbarProgress: $("#toolbarProgress"),
+      overviewBackdrop: $("#overviewBackdrop"), overviewClose: $("#overviewClose"), overviewFilter: $("#overviewFilter"),
+      overviewPracticed: $("#overviewPracticed"), overviewUnpracticed: $("#overviewUnpracticed"), overviewWrong: $("#overviewWrong"), problemGrid: $("#problemGrid"),
+      saveText: $("#saveText"), toast: $("#toast")
+    };
+
+    const storage = {
+      get(key, fallback = "") { try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; } },
+      set(key, value) { try { localStorage.setItem(key, value); return true; } catch { return false; } }
+    };
+
+    const categories = [...new Set(problems.map((problem) => problem.c))].sort((a, b) => a.localeCompare(b, "zh-CN"));
+    categories.forEach((category) => {
+      const option = document.createElement("option");
+      option.value = option.textContent = category;
+      elements.category.append(option);
+    });
+
+    let current = null;
+    let draftLanguage = elements.language.value;
+    let toastTimer;
+
+    function keyFor(kind, problem = current, language = elements.language.value) {
+      if (kind === "code") return `hot100:code:${problem.n}:${language}`;
+      if (kind === "notes") return `hot100:notes:${problem.n}`;
+      if (kind === "wrong") return `hot100:wrong:${problem.n}`;
+      return `hot100:practiced:${problem.n}`;
+    }
+
+    function filteredProblems() {
+      return problems.filter((problem) =>
+        (elements.difficulty.value === "all" || problem.d === elements.difficulty.value) &&
+        (elements.category.value === "all" || problem.c === elements.category.value)
+      );
+    }
+
+    function starter(language) {
+      const snippets = {
+        JavaScript: "function solve(/* parameters */) {\n  // 写下你的解法\n}\n",
+        Python: "class Solution:\n    def solve(self, *args):\n        # 写下你的解法\n        pass\n",
+        Java: "class Solution {\n    public Object solve(Object input) {\n        // 写下你的解法\n        return null;\n    }\n}\n",
+        "C++": "class Solution {\npublic:\n    auto solve(/* parameters */) {\n        // 写下你的解法\n    }\n};\n",
+        Go: "func solve(/* parameters */) {\n    // 写下你的解法\n}\n",
+        TypeScript: "function solve(/* parameters */): unknown {\n  // 写下你的解法\n}\n"
+      };
+      return snippets[language] || "";
+    }
+
+    function loadDraft() {
+      elements.code.value = storage.get(keyFor("code"), starter(elements.language.value));
+      elements.notes.value = storage.get(keyFor("notes"));
+      updateQuestionActions();
+    }
+
+    function saveDraft(showConfirmation = false, language = elements.language.value) {
+      if (!current) return;
+      const saved = storage.set(keyFor("code", current, language), elements.code.value) && storage.set(keyFor("notes"), elements.notes.value);
+      elements.saveText.textContent = saved ? "草稿已保存在此浏览器" : "浏览器阻止了本地保存";
+      if (showConfirmation) showToast(saved ? "草稿已保存" : "无法保存草稿");
+    }
+
+    function render(problem) {
+      current = problem;
+      const matching = filteredProblems();
+      const details = problemDetails[problem.n];
+      elements.index.textContent = `筛选结果 ${matching.length} 道 · 题库 ${problems.length} 道`;
+      elements.number.textContent = `LEETCODE #${problem.n}`;
+      elements.title.textContent = problem.t;
+      elements.summary.textContent = problem.b;
+      elements.description.textContent = details.d;
+      elements.input.textContent = details.i;
+      elements.output.textContent = details.o;
+      elements.constraints.textContent = details.k;
+      elements.example.textContent = details.e;
+      elements.link.href = `https://leetcode.cn/problems/${problem.s}/`;
+      loadDraft();
+      updateProgress();
+      document.title = `${problem.n}. ${problem.t} · Hot 100 随机练习`;
+    }
+
+    function chooseRandom() {
+      saveDraft();
+      const candidates = filteredProblems();
+      if (!candidates.length) {
+        showToast("当前筛选没有题目，请调整条件");
+        return;
+      }
+      const pool = candidates.length > 1 && current ? candidates.filter((item) => item.n !== current.n) : candidates;
+      render(pool[Math.floor(Math.random() * pool.length)]);
+    }
+
+    function isPracticed(problem = current) {
+      return Boolean(problem) && storage.get(keyFor("practiced", problem)) === "1";
+    }
+
+    function isWrong(problem = current) {
+      return Boolean(problem) && storage.get(keyFor("wrong", problem)) === "1";
+    }
+
+    function updateQuestionActions() {
+      const practiced = isPracticed();
+      const wrong = isWrong();
+      elements.practice.textContent = practiced ? "已练习（未判题）" : "标记已练习";
+      elements.practice.classList.toggle("done", practiced);
+      elements.practice.setAttribute("aria-pressed", String(practiced));
+      elements.wrong.textContent = wrong ? "移出错题本" : "加入错题本";
+      elements.wrong.classList.toggle("active", wrong);
+      elements.wrong.setAttribute("aria-pressed", String(wrong));
+    }
+
+    function progressCounts() {
+      const practiced = problems.filter((problem) => isPracticed(problem)).length;
+      const wrong = problems.filter((problem) => isWrong(problem)).length;
+      return { practiced, unpracticed: problems.length - practiced, wrong };
+    }
+
+    function renderOverview() {
+      const filter = elements.overviewFilter.value;
+      const visibleProblems = problems.filter((problem) => {
+        if (filter === "practiced") return isPracticed(problem);
+        if (filter === "unpracticed") return !isPracticed(problem);
+        if (filter === "wrong") return isWrong(problem);
+        return true;
+      });
+
+      elements.problemGrid.replaceChildren();
+      if (!visibleProblems.length) {
+        const empty = document.createElement("p");
+        empty.className = "overview-empty";
+        empty.textContent = filter === "wrong" ? "错题本还是空的，练习时可随时收录题目。" : "当前状态下没有题目。";
+        elements.problemGrid.append(empty);
+        return;
+      }
+
+      visibleProblems.forEach((problem) => {
+        const practiced = isPracticed(problem);
+        const wrong = isWrong(problem);
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "problem-status";
+        button.classList.toggle("practiced", practiced);
+        button.classList.toggle("wrong", wrong);
+        button.classList.toggle("current", Boolean(current && current.n === problem.n));
+        button.setAttribute("aria-label", `${problem.n}. ${problem.t}，${practiced ? "已练习" : "未练习"}${wrong ? "，已收录错题本" : ""}`);
+
+        const number = document.createElement("span");
+        number.className = "problem-status-number";
+        number.textContent = `#${problem.n}`;
+        const title = document.createElement("span");
+        title.className = "problem-status-title";
+        title.textContent = problem.t;
+        button.append(number, title);
+        if (wrong) {
+          const wrongMark = document.createElement("span");
+          wrongMark.className = "problem-status-wrong";
+          wrongMark.setAttribute("aria-hidden", "true");
+          wrongMark.textContent = "★";
+          button.append(wrongMark);
+        }
+
+        button.addEventListener("click", () => {
+          saveDraft();
+          elements.difficulty.value = "all";
+          elements.category.value = "all";
+          render(problem);
+          closeOverview();
+          document.querySelector(".layout").scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+        elements.problemGrid.append(button);
+      });
+    }
+
+    function updateProgress() {
+      const counts = progressCounts();
+      elements.progressText.textContent = `已练习 ${counts.practiced} / ${problems.length}`;
+      elements.progressBar.style.width = `${counts.practiced / problems.length * 100}%`;
+      elements.toolbarProgress.textContent = `${counts.practiced}/${problems.length}`;
+      elements.overviewPracticed.textContent = counts.practiced;
+      elements.overviewUnpracticed.textContent = counts.unpracticed;
+      elements.overviewWrong.textContent = counts.wrong;
+      if (!elements.overviewBackdrop.hidden) renderOverview();
+    }
+
+    function openOverview() {
+      elements.overviewBackdrop.hidden = false;
+      elements.overview.setAttribute("aria-expanded", "true");
+      document.body.classList.add("modal-open");
+      updateProgress();
+      elements.overviewClose.focus();
+    }
+
+    function closeOverview() {
+      if (elements.overviewBackdrop.hidden) return;
+      elements.overviewBackdrop.hidden = true;
+      elements.overview.setAttribute("aria-expanded", "false");
+      document.body.classList.remove("modal-open");
+      elements.overview.focus();
+    }
+
+    function togglePracticed() {
+      const next = isPracticed() ? "0" : "1";
+      storage.set(keyFor("practiced"), next);
+      updateQuestionActions();
+      updateProgress();
+      showToast(next === "1" ? "已记录为练习过（不代表答案正确）" : "已取消练习标记");
+    }
+
+    function toggleWrong() {
+      const next = isWrong() ? "0" : "1";
+      storage.set(keyFor("wrong"), next);
+      updateQuestionActions();
+      updateProgress();
+      showToast(next === "1" ? "已收录至错题本" : "已移出错题本");
+    }
+
+    function showToast(message) {
+      clearTimeout(toastTimer);
+      elements.toast.textContent = message;
+      elements.toast.classList.add("show");
+      toastTimer = setTimeout(() => elements.toast.classList.remove("show"), 1800);
+    }
+
+    elements.random.addEventListener("click", chooseRandom);
+    elements.difficulty.addEventListener("change", chooseRandom);
+    elements.category.addEventListener("change", chooseRandom);
+    elements.overview.addEventListener("click", openOverview);
+    elements.overviewClose.addEventListener("click", closeOverview);
+    elements.overviewFilter.addEventListener("change", renderOverview);
+    elements.overviewBackdrop.addEventListener("click", (event) => {
+      if (event.target === elements.overviewBackdrop) closeOverview();
+    });
+    elements.language.addEventListener("change", () => {
+      saveDraft(false, draftLanguage);
+      draftLanguage = elements.language.value;
+      loadDraft();
+    });
+    elements.code.addEventListener("input", () => saveDraft());
+    elements.notes.addEventListener("input", () => saveDraft());
+    elements.practice.addEventListener("click", togglePracticed);
+    elements.wrong.addEventListener("click", toggleWrong);
+    elements.copy.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(elements.code.value); showToast("代码已复制"); }
+      catch { elements.code.select(); document.execCommand("copy"); showToast("代码已复制"); }
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !elements.overviewBackdrop.hidden) { closeOverview(); return; }
+      if (event.altKey && event.key.toLowerCase() === "n") { event.preventDefault(); chooseRandom(); }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { event.preventDefault(); saveDraft(true); }
+      if (event.key === "Tab" && event.target === elements.code) {
+        event.preventDefault();
+        const start = elements.code.selectionStart;
+        elements.code.setRangeText("  ", start, elements.code.selectionEnd, "end");
+        saveDraft();
+      }
+    });
+
+    window.addEventListener("beforeunload", () => saveDraft());
+    chooseRandom();
+  </script>
+</body>
+</html>

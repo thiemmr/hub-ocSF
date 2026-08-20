@@ -1,0 +1,214 @@
+"""
+Skill优化实验Agent（基于Function Calling）
+使用 DeepSeek V4 Flash API。
+所有工作流、实验规则、报告模板均由 skill/SKILL.md 定义（单一数据源）
+Agent职责：
+1. 加载SKILL.md作为System Prompt
+2. 注入固定测试文本
+3. Function Calling调度tools内工具
+4. 打印执行流程，生成实验报告
+运行方式：
+python agent.py
+python agent.py --max-steps 25
+python agent.py --output-dir ./result
+环境变量：
+DEEPSEEK_API_KEY  必填
+DEEPSEEK_URL      可选
+AGENT_MODEL       可选
+"""
+import os
+import json
+import time
+import logging
+import argparse
+from typing import Generator
+from openai import OpenAI
+
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
+
+# 配置
+DEFAULT_MODEL = os.getenv("AGENT_MODEL", "deepseek-v4-flash")
+DEEPSEEK_URL = os.getenv("DEEPSEEK_URL", "https://api.deepseek.com")
+DEFAULT_OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+SKILL_PATH = os.path.join(DEFAULT_OUTPUT_DIR, "skill", "SKILL.md")
+
+# 加载工具映射
+from tools import TOOLS_MAP, TOOLS_SCHEMA
+
+def _load_skill_prompt(skill_path: str = SKILL_PATH) -> str:
+    with open(skill_path, encoding="utf-8") as f:
+        raw = f.read()
+    if raw.startswith("---"):
+        parts = raw.split("---", 2)
+        if len(parts) >=3:
+            body = parts[2].strip()
+        else:
+            body = raw
+    else:
+        body = raw.strip()
+    return body
+
+def _get_client() -> OpenAI:
+    api_key = os.getenv("DEEPSEEK_API_KEY")
+    if not api_key:
+        raise EnvironmentError("请配置环境变量 DEEPSEEK_API_KEY")
+    return OpenAI(api_key=api_key, base_url=DEEPSEEK_URL)
+
+class SkillOptAgent:
+    """Skill编写与优化对比实验Agent"""
+    def __init__(self, model: str = DEFAULT_MODEL, max_steps: int = 20):
+        self.model = model
+        self.max_steps = max_steps
+        self.tools_map = TOOLS_MAP
+        self.tools_schema = TOOLS_SCHEMA
+        self.client = _get_client()
+        self.messages = [
+            {"role":"system","content": _load_skill_prompt()}
+        ]
+
+    def run(self, task_prompt:str, output_dir:str) -> Generator[dict, None, None]:
+        test_text = """人工智能行业持续快速发展，大模型落地场景不断拓宽。不少企业开始从单纯追求模型参数规模，转向看重实际业务效果与部署成本。中小型企业难以承担超大模型训练费用，因此轻量化模型、模型微调、本地部署方案需求持续上涨。与此同时，行业也面临不少问题：数据合规风险、模型幻觉难以根除、高质量标注素材供给不足。各地陆续出台生成式AI监管政策，规范行业发展，引导技术合规应用。"""
+        full_msg = f"""{task_prompt}
+固定测试文本（全程统一使用）：
+{test_text}
+
+最终报告输出路径：{os.path.join(output_dir,"skill_experiment_report.md")}
+严格按照SKILL.md规定的完整流程执行实验。
+"""
+        self.messages.append({"role":"user","content":full_msg})
+
+        yield {"step":0,"type":"info","message":"🤖 Skill优化实验Agent启动"}
+
+        for step in range(1,self.max_steps+1):
+            try:
+                resp = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=self.messages,
+                    tools=self.tools_schema,
+                    tool_choice="auto",
+                    temperature=0.1
+                )
+            except Exception as e:
+                yield {"step":step,"type":"error","message":f"LLM调用异常:{str(e)}"}
+                break
+            msg = resp.choices[0].message
+            finish_reason = resp.choices[0].finish_reason
+
+            if finish_reason == "stop" or not msg.tool_calls:
+                self.messages.append({"role":"assistant","content":msg.content or ""})
+                yield {"step":step,"type":"final","answer":msg.content or "无输出"}
+                return
+
+            self.messages.append({
+                "role":msg.role,
+                "content":msg.content or "",
+                "tool_calls":[
+                    {
+                        "id":tc.id,
+                        "type":tc.type,
+                        "function":{"name":tc.function.name,"arguments":tc.function.arguments}
+                    } for tc in msg.tool_calls
+                ]
+            })
+
+            for tool_call in msg.tool_calls:
+                t_name = tool_call.function.name
+                try:
+                    t_args = json.loads(tool_call.function.arguments)
+                except:
+                    t_args = {}
+                fn = self.tools_map.get(t_name)
+                if not fn:
+                    obs = f"未知工具 {t_name}"
+                else:
+                    logger.info(f"[Step{step}]调用 {t_name} {t_args}")
+                    try:
+                        obs = fn(**t_args)
+                    except Exception as e:
+                        obs = f"工具执行失败:{str(e)}"
+                summary = str(obs)
+                if len(summary)>250:
+                    summary = summary[:250]+"..."
+                yield {
+                    "step":step,
+                    "type":"action",
+                    "tool":t_name,
+                    "args":t_args,
+                    "observation_summary":summary
+                }
+                self.messages.append({
+                    "role":"tool",
+                    "tool_call_id":tool_call.id,
+                    "content":str(obs)
+                })
+        yield {
+            "step":self.max_steps+1,
+            "type":"max_steps",
+            "message":f"达到最大推理步数{self.max_steps}"
+        }
+
+# 彩色控制台输出
+COLORS = {
+    "info":"\033[36m","action":"\033[33m","final":"\033[35m",
+    "error":"\033[31m","reset":"\033[0m","bold":"\033[1m"
+}
+def _c(color,text):
+    return f"{COLORS.get(color,'')}{text}{COLORS['reset']}"
+
+def run_and_print(topic:str,max_steps:int,output_dir:str):
+    print(f"\n{'='*70}")
+    print(_c("bold","🤖 Skill优化对比实验Agent"))
+    print(f"模型:{DEFAULT_MODEL}")
+    print(f"任务:{topic}")
+    print(f"输出目录:{output_dir}")
+    print(f"最大步数:{max_steps}")
+    print("="*70)
+    agent = SkillOptAgent(max_steps=max_steps)
+    start = time.time()
+    last_res = None
+    for data in agent.run(topic,output_dir):
+        tp = data["type"]
+        if tp == "info":
+            print(f"\n{_c('info',data['message'])}")
+        elif tp == "action":
+            tool = data["tool"]
+            args_str = json.dumps(data["args"],ensure_ascii=False)
+            print(f"\n{_c('action',f'[Step{data['step']}] 调用工具 {tool}')}")
+            print(_c("action",f"参数:{args_str[:180]}"))
+            print(_c("info",f"返回摘要:{data['observation_summary']}"))
+        elif tp == "final":
+            cost = time.time()-start
+            print(f"\n{'-'*70}")
+            print(_c("final","✅ 实验流程全部结束！"))
+            print(f"{data['answer']}")
+            print(f"\n耗时 {cost:.1f}s")
+            last_res = data
+        elif tp == "error":
+            print(_c("error",f"\n❌ {data['message']}"))
+        elif tp == "max_steps":
+            print(_c("error",f"\n⚠️ {data['message']}"))
+    return last_res
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Skill编写与优化对比实验Agent",
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument("--topic",default="生成文本摘要Skill v1，再进行优化得到v2，完成对比实验并输出完整报告",help="任务描述")
+    parser.add_argument("--max-steps",type=int,default=20)
+    parser.add_argument("--output-dir",default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--quiet",action="store_true")
+    args = parser.parse_args()
+    if args.quiet:
+        logging.getLogger().setLevel(logging.WARNING)
+    run_and_print(
+        topic=args.topic,
+        max_steps=args.max_steps,
+        output_dir=args.output_dir
+    )
+
+if __name__ == "__main__":
+    main()

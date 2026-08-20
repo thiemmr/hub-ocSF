@@ -1,0 +1,209 @@
+from __future__ import annotations
+import asyncio
+import time
+import logging
+from enum import Enum
+from dataclasses import dataclass
+from typing import Dict, Any, Callable, Optional, Awaitable, TypeVar
+
+# -------------------------- 类型定义 & 常量 --------------------------
+T = TypeVar("T")
+logger = logging.getLogger("SkillHarness")
+
+
+class SkillLoadState(Enum):
+    UNLOADED = "unloaded"      # 未加载
+    LOADING = "loading"        # 加载中
+    READY = "ready"            # 加载完成可执行
+    INVALID = "invalid"        # 加载失败/已失效
+
+
+@dataclass
+class SkillContext:
+    """单次技能执行上下文"""
+    skill_id: str
+    params: Dict[str, Any]
+    trace_id: str
+    timeout: float
+    start_ts: float = 0.0
+
+
+@dataclass
+class SkillResult:
+    """统一返回结构体"""
+    success: bool
+    data: Optional[Any] = None
+    error: Optional[str] = None
+    cost_ms: float = 0.0
+
+
+# -------------------------- Skill 封装单元（懒加载单元） --------------------------
+class ProgressiveSkill:
+    def __init__(
+        self,
+        skill_id: str,
+        loader: Callable[[], Awaitable[Callable]],
+        unloader: Optional[Callable[[Callable], Awaitable[None]]] = None
+    ):
+        self.skill_id = skill_id
+        self._loader = loader          # 异步加载函数（构建执行函数）
+        self._unloader = unloader      # 资源释放回调
+        self.state: SkillLoadState = SkillLoadState.UNLOADED
+        self._impl: Optional[Callable] = None
+        self._lock = asyncio.Lock()
+
+    async def load(self) -> bool:
+        """渐进加载，加锁防止并发重复加载"""
+        async with self._lock:
+            if self.state == SkillLoadState.READY:
+                return True
+            if self.state == SkillLoadState.LOADING:
+                return False
+            self.state = SkillLoadState.LOADING
+            try:
+                self._impl = await self._loader()
+                self.state = SkillLoadState.READY
+                logger.info(f"[{self.skill_id}] skill loaded successfully")
+                return True
+            except Exception as e:
+                self.state = SkillLoadState.INVALID
+                logger.error(f"[{self.skill_id}] load failed: {str(e)}")
+                return False
+
+    async def unload(self):
+        """主动卸载释放资源"""
+        async with self._lock:
+            if self.state != SkillLoadState.READY or self._impl is None:
+                return
+            if self._unloader is not None:
+                try:
+                    await self._unloader(self._impl)
+                except Exception as e:
+                    logger.warning(f"[{self.skill_id}] unload error: {e}")
+            self._impl = None
+            self.state = SkillLoadState.UNLOADED
+            logger.info(f"[{self.skill_id}] skill unloaded")
+
+    async def run(self, ctx: SkillContext) -> SkillResult:
+        """执行技能：如果未加载，自动触发渐进加载"""
+        # 按需懒加载核心逻辑
+        if self.state != SkillLoadState.READY:
+            load_ok = await self.load()
+            if not load_ok or self._impl is None:
+                return SkillResult(
+                    success=False,
+                    error=f"skill {self.skill_id} not ready, load failed"
+                )
+
+        ctx.start_ts = time.time()
+        try:
+            # 带超时执行
+            ret = await asyncio.wait_for(
+                self._impl(**ctx.params),
+                timeout=ctx.timeout
+            )
+            cost = (time.time() - ctx.start_ts) * 1000
+            return SkillResult(success=True, data=ret, cost_ms=cost)
+        except asyncio.TimeoutError:
+            cost = (time.time() - ctx.start_ts) * 1000
+            return SkillResult(success=False, error="execute timeout", cost_ms=cost)
+        except Exception as e:
+            cost = (time.time() - ctx.start_ts) * 1000
+            logger.exception(f"[{self.skill_id}] runtime exception")
+            return SkillResult(success=False, error=str(e), cost_ms=cost)
+
+
+# -------------------------- Harness 调度主框架 --------------------------
+class SkillHarness:
+    def __init__(self, default_timeout: float = 10.0):
+        self.skills: Dict[str, ProgressiveSkill] = {}
+        self.default_timeout = default_timeout
+
+    def register_skill(
+        self,
+        skill_id: str,
+        loader: Callable[[], Awaitable[Callable]],
+        unloader: Optional[Callable] = None
+    ):
+        """注册技能定义（此时不会加载，纯注册）"""
+        skill = ProgressiveSkill(skill_id, loader, unloader)
+        self.skills[skill_id] = skill
+        logger.info(f"Register skill: {skill_id}")
+
+    async def execute(
+        self,
+        skill_id: str,
+        params: Dict[str, Any],
+        trace_id: str = "",
+        timeout: Optional[float] = None
+    ) -> SkillResult:
+        """对外统一执行入口"""
+        if skill_id not in self.skills:
+            return SkillResult(success=False, error=f"skill {skill_id} not registered")
+
+        skill = self.skills[skill_id]
+        ctx = SkillContext(
+            skill_id=skill_id,
+            params=params,
+            trace_id=trace_id,
+            timeout=timeout or self.default_timeout
+        )
+        return await skill.run(ctx)
+
+    async def manual_unload(self, skill_id: str):
+        if skill_id in self.skills:
+            await self.skills[skill_id].unload()
+
+    async def unload_all(self):
+        """全部卸载，用于程序退出清理"""
+        tasks = [sk.unload() for sk in self.skills.values()]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+# -------------------------- 使用示例 --------------------------
+async def demo_skill_loader():
+    """模拟一个重型技能加载逻辑（例如加载模型、初始化客户端）"""
+    logger.info("simulate heavy skill initialization ...")
+    await asyncio.sleep(0.8)  # 模拟耗时加载
+    # 返回实际执行函数
+    async def hello_skill(name: str):
+        await asyncio.sleep(0.2)
+        return f"Hello, {name}"
+    return hello_skill
+
+
+async def demo_unloader(fn):
+    logger.info("release resource for demo skill")
+
+
+async def main():
+    harness = SkillHarness(default_timeout=5.0)
+
+    # 1. 注册技能，此时【完全不加载】，实现渐进式
+    harness.register_skill(
+        skill_id="hello_skill",
+        loader=demo_skill_loader,
+        unloader=demo_unloader
+    )
+
+    # 2. 第一次调用 → 自动触发懒加载
+    res1 = await harness.execute("hello_skill", params={"name": "Alice"}, trace_id="t001")
+    print("Result1:", res1)
+
+    # 3. 第二次调用 → 已经缓存，直接执行
+    res2 = await harness.execute("hello_skill", params={"name": "Bob"}, trace_id="t002")
+    print("Result2:", res2)
+
+    # 4. 手动卸载
+    await harness.manual_unload("hello_skill")
+
+    # 5. 再次调用，重新渐进加载
+    res3 = await harness.execute("hello_skill", params={"name": "Carol"}, trace_id="t003")
+    print("Result3:", res3)
+
+    await harness.unload_all()
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(main())

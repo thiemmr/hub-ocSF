@@ -1,0 +1,4 @@
+interface:
+  display_name: "Hot 100 刷题页生成器"
+  short_description: "生成带完整题意、练习总览和错题本的 Hot 100 网页"
+  default_prompt: "使用 $hot100-practice-page 生成一个带完整题意、100 题练习状态总览和错题本的 Hot 100 静态网页。"

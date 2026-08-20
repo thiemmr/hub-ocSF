@@ -1,0 +1,26 @@
+# Harness Agent 配置文件
+llm:
+  # DeepSeek API（OpenAI 兼容接口）
+  base_url: "https://api.deepseek.com"
+  api_key: ""  # 也可通过环境变量 OPENAI_API_KEY 设置
+  model: "deepseek-chat"
+
+# Skill 存储目录（相对于项目根目录）
+skill_store_dir: "skills_store"
+
+# 渐进式加载配置
+progressive_loading:
+  # 匹配阶段：使用关键词匹配还是 LLM 匹配
+  match_strategy: "keyword"  # keyword | llm
+  # 每次最多加载的技能详情数量
+  max_active_skills: 3
+  # 索引缓存有效期（秒）
+  index_cache_ttl: 300
+
+# Agent 配置
+agent:
+  system_prompt: |
+    你是一个强大的 Harness Agent，能够根据用户需求加载和使用技能（Skill）。
+    你会先分析用户意图，匹配相关技能，然后加载技能详情来辅助完成任务。
+    如果没有匹配的技能，你可以使用通用能力回答，或建议用户生成新技能。
+  max_history: 20

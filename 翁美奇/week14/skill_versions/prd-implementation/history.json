@@ -1,0 +1,30 @@
+[
+  {
+    "version": 1,
+    "time": "2026-08-05T21:41:47.483292",
+    "action": "initial",
+    "reason": "首次启动存档",
+    "snapshot": "SKILL_v1.md"
+  },
+  {
+    "version": 2,
+    "time": "2026-08-05T21:46:30.855282",
+    "action": "patch",
+    "reason": "修复“输出必须包含 mermaid 流程图且节点数 ≥ 10”的失败：在输出格式的流程图说明中明确节点数下限。",
+    "snapshot": "SKILL_v2.md"
+  },
+  {
+    "version": 3,
+    "time": "2026-08-05T21:46:30.856843",
+    "action": "patch",
+    "reason": "修复“输出必须包含 mermaid 流程图且节点数 ≥ 10”的失败：更新 Few-shot 示例中的流程图，使节点数达到 12，供模型模仿。",
+    "snapshot": "SKILL_v3.md"
+  },
+  {
+    "version": 4,
+    "time": "2026-08-05T21:46:30.858065",
+    "action": "patch",
+    "reason": "修复“输出必须包含 mermaid 流程图且节点数 ≥ 10”的失败：在质量检测清单中增加节点数自检项，确保输出前校验。",
+    "snapshot": "SKILL_v4.md"
+  }
+]
