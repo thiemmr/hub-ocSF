@@ -1,0 +1,333 @@
+import math
+
+# ========== 配置 ==========
+# 数值都来自 config.json 和建模文件，GLM没公开的地方标了None
+
+models = {
+    "DeepSeek-V4-Pro": {
+        "hidden_size": 7168,
+        "num_layers": 61,
+        "num_heads": 128,
+        "head_dim": 512,
+        "num_kv_heads": 1,        # MQA，K和V共享
+        "vocab_size": 129280,
+        "num_experts": 384,
+        "active_experts": 6,
+        "shared_experts": 1,
+        "expert_intermediate": 3072,
+        "moe_intermediate": 3072,
+        "has_dense_layers": False,  # 全MoE
+        "dense_intermediate": None,
+        "tie_embeddings": False,
+        "mhc_mult": 4,             # 多路残差
+        "q_lora_rank": 1536,
+        "o_lora_rank": 1024,
+        "o_groups": 16,
+        "ctx": 1048576,
+        "expert_dtype_bytes": 0.5,  # fp4
+        "weight_dtype_bytes": 1,     # fp8
+    },
+    "MiniMax-M3": {
+        "hidden_size": 6144,
+        "num_layers": 60,
+        "num_heads": 64,
+        "head_dim": 128,
+        "num_kv_heads": 4,        # GQA
+        "vocab_size": 200064,
+        "num_experts": 128,
+        "active_experts": 4,
+        "shared_experts": 1,
+        "expert_intermediate": 3072,
+        "moe_intermediate": 3072,
+        "has_dense_layers": True,   # 前3层dense
+        "dense_layers_count": 3,
+        "dense_intermediate": 12288,
+        "tie_embeddings": False,
+        "mhc_mult": 1,
+        "q_lora_rank": None,
+        "o_lora_rank": None,
+        "o_groups": None,
+        "ctx": 1048576,
+        "expert_dtype_bytes": 2,    # bf16
+        "weight_dtype_bytes": 2,    # bf16
+    },
+    "GLM-5.2": {
+        # GLM没公开完整config，这里用README能确认的数，缺的标None
+        "hidden_size": None,
+        "num_layers": None,
+        "num_heads": None,
+        "head_dim": None,
+        "num_kv_heads": None,
+        "vocab_size": None,
+        "num_experts": None,
+        "active_experts": None,
+        "shared_experts": None,
+        "expert_intermediate": None,
+        "moe_intermediate": None,
+        "has_dense_layers": None,
+        "dense_intermediate": None,
+        "tie_embeddings": None,
+        "mhc_mult": 1,
+        "q_lora_rank": None,
+        "o_lora_rank": None,
+        "o_groups": None,
+        "ctx": 1048576,
+        "expert_dtype_bytes": 2,
+        "weight_dtype_bytes": 2,
+    },
+}
+
+
+# ========== 参数量估算 ==========
+# 不算太精确，主要是量级对比，作业里够用了
+
+def count_attention_params(cfg):
+    """算注意力部分的参数量"""
+    h = cfg["hidden_size"]
+    n_heads = cfg["num_heads"]
+    head_dim = cfg["head_dim"]
+    n_kv = cfg["num_kv_heads"]
+
+    # Q投影 —— DeepSeek用了低秩，其他正常
+    if cfg["q_lora_rank"]:
+        q_params = h * cfg["q_lora_rank"] + cfg["q_lora_rank"] * (n_heads * head_dim)
+    else:
+        q_params = h * (n_heads * head_dim)
+
+    # KV投影 —— DeepSeek是MQA，K和V共享一张量，只投影一次
+    if n_kv == 1 and cfg["num_heads"] > 1:
+        kv_params = h * head_dim  # 共享KV，一次投影
+    else:
+        kv_params = 2 * h * (n_kv * head_dim)  # 正常GQA，K和V分开
+
+    # 输出投影 —— DeepSeek用了分组低秩
+    if cfg["o_lora_rank"] and cfg["o_groups"]:
+        # o_a: 每组 (heads*head_dim/groups) * o_lora_rank，共groups组
+        per_group = (n_heads * head_dim) // cfg["o_groups"]
+        o_a = cfg["o_groups"] * per_group * cfg["o_lora_rank"]
+        o_b = cfg["o_lora_rank"] * h
+        o_params = o_a + o_b
+    else:
+        o_params = (n_heads * head_dim) * h
+
+    # norm（q_norm, kv_norm这些，粗略算）
+    norm_params = 3 * (n_heads * head_dim)  # q_norm, k_norm, v_norm 大概
+
+    return q_params + kv_params + o_params + norm_params
+
+
+def count_moe_params_per_layer(cfg):
+    """算每层MoE的参数量（专家+路由器，不含dense层）"""
+    h = cfg["hidden_size"]
+    n_exp = cfg["num_experts"]
+    exp_mid = cfg["expert_intermediate"]
+
+    # 每个专家是SwiGLU: gate_proj + up_proj + down_proj
+    per_expert = 3 * h * exp_mid
+    expert_params = n_exp * per_expert
+
+    # 共享专家
+    if cfg["shared_experts"]:
+        expert_params += cfg["shared_experts"] * 3 * h * exp_mid
+
+    # 路由器
+    router_params = h * n_exp
+
+    return expert_params + router_params
+
+
+def count_dense_params(cfg):
+    """dense层的MLP参数（MiniMax前3层）"""
+    if not cfg["has_dense_layers"] or not cfg["dense_intermediate"]:
+        return 0
+    h = cfg["hidden_size"]
+    n_dense = cfg.get("dense_layers_count", 0)
+    return n_dense * 3 * h * cfg["dense_intermediate"]
+
+
+def count_embedding_params(cfg):
+    """词嵌入和输出头"""
+    h = cfg["hidden_size"]
+    v = cfg["vocab_size"]
+    embed = v * h
+    if cfg["tie_embeddings"]:
+        lm_head = 0
+    else:
+        lm_head = v * h
+    return embed + lm_head
+
+
+def count_norm_and_other(cfg):
+    """每层的RMSNorm、bias这些杂项"""
+    h = cfg["hidden_size"]
+    n_layers = cfg["num_layers"]
+    # 每层大概2-3个norm，final norm一个
+    per_layer_norm = 3 * h
+    total = n_layers * per_layer_norm + h
+    # mHC的comb矩阵这些（DeepSeek）
+    if cfg["mhc_mult"] > 1:
+        m = cfg["mhc_mult"]
+        total += n_layers * 2 * m * m  # 每层两个hyperconnection，每个m*m comb
+        total += m * m  # final head
+    return total
+
+
+def estimate_total_params(cfg):
+    if cfg["hidden_size"] is None:
+        return None  # GLM没数据
+    n_layers = cfg["num_layers"]
+    attn = count_attention_params(cfg) * n_layers
+    moe = count_moe_params_per_layer(cfg) * n_layers
+    dense = count_dense_params(cfg)
+    emb = count_embedding_params(cfg)
+    other = count_norm_and_other(cfg)
+    return attn + moe + dense + emb + other
+
+
+def estimate_active_params(cfg):
+    """推理时实际激活的参数量"""
+    if cfg["hidden_size"] is None:
+        return None
+    h = cfg["hidden_size"]
+    n_layers = cfg["num_layers"]
+    n_heads = cfg["num_heads"]
+    head_dim = cfg["head_dim"]
+    n_kv = cfg["num_kv_heads"]
+    exp_mid = cfg["expert_intermediate"]
+
+    # 注意力是全激活的
+    if cfg["q_lora_rank"]:
+        q_active = h * cfg["q_lora_rank"] + cfg["q_lora_rank"] * (n_heads * head_dim)
+    else:
+        q_active = h * (n_heads * head_dim)
+
+    if n_kv == 1 and cfg["num_heads"] > 1:
+        kv_active = h * head_dim
+    else:
+        kv_active = 2 * h * (n_kv * head_dim)
+
+    if cfg["o_lora_rank"] and cfg["o_groups"]:
+        per_group = (n_heads * head_dim) // cfg["o_groups"]
+        o_a = cfg["o_groups"] * per_group * cfg["o_lora_rank"]
+        o_b = cfg["o_lora_rank"] * h
+        o_active = o_a + o_b
+    else:
+        o_active = (n_heads * head_dim) * h
+
+    attn_active = (q_active + kv_active + o_active) * n_layers
+
+    # MoE只激活active_experts个 + shared
+    per_expert = 3 * h * exp_mid
+    moe_active = (cfg["active_experts"] + cfg["shared_experts"]) * per_expert * n_layers
+    if cfg["has_dense_layers"] and cfg["dense_intermediate"]:
+        n_dense = cfg.get("dense_layers_count", 0)
+        moe_active += n_dense * 3 * h * cfg["dense_intermediate"]
+
+    # 嵌入和输出头
+    emb_active = count_embedding_params(cfg)
+
+    # norm等
+    other_active = count_norm_and_other(cfg)
+
+    return attn_active + moe_active + emb_active + other_active
+
+
+# ========== KV cache 内存 ==========
+# 1M上下文下每个token的KV cache占多少
+
+def kv_cache_per_token(cfg):
+    if cfg["hidden_size"] is None:
+        return None
+    n_layers = cfg["num_layers"]
+    n_kv = cfg["num_kv_heads"]
+    head_dim = cfg["head_dim"]
+    # bf16/fp8每个元素字节数，粗略用2字节（bf16）
+    bytes_per_elem = 2
+    # DeepSeek的KV压缩：平均压缩比大概估算
+    # 滑动窗层不存全局KV，CSA 4:1，HCA 128:1
+    # 粗略按平均压缩比4:1算（实际更复杂，这里只是量级）
+    if cfg["num_kv_heads"] == 1 and cfg["head_dim"] == 512:
+        # DeepSeek MQA + 压缩，估算有效压缩比
+        compress_ratio = 4.0  # 粗略
+    else:
+        compress_ratio = 1.0
+
+    kv = n_layers * n_kv * head_dim * bytes_per_elem / compress_ratio
+    return kv
+
+
+# ========== 打印结果 ==========
+
+print("=" * 70)
+print("  三个模型架构参数估算对比")
+print("  (参数量单位: B = 十亿，KV cache单位: GB)")
+print("=" * 70)
+print()
+
+# 参数量
+print("--- 参数量估算 ---")
+print(f"{'模型':<20} {'总参数(B)':<12} {'激活参数(B)':<12} {'激活比例':<10}")
+print("-" * 60)
+for name, cfg in models.items():
+    total = estimate_total_params(cfg)
+    active = estimate_active_params(cfg)
+    if total and active:
+        ratio = active / total * 100
+        print(f"{name:<20} {total/1e9:<12.1f} {active/1e9:<12.1f} {ratio:<10.1f}%")
+    else:
+        print(f"{name:<20} {'未公开':<12} {'未公开':<12} {'-':<10}")
+print()
+
+# KV cache
+print("--- KV Cache 内存占用 (1M上下文) ---")
+print(f"{'模型':<20} {'每token(KB)':<14} {'1M上下文(GB)':<16}")
+print("-" * 55)
+for name, cfg in models.items():
+    per_tok = kv_cache_per_token(cfg)
+    if per_tok:
+        total_gb = per_tok * cfg["ctx"] / (1024**3)
+        print(f"{name:<20} {per_tok/1024:<14.2f} {total_gb:<16.1f}")
+    else:
+        print(f"{name:<20} {'未公开':<14} {'未公开':<16}")
+print()
+
+# 权重内存
+print("--- 权重内存估算 ---")
+print(f"{'模型':<20} {'专家精度':<10} {'权重精度':<10} {'估算权重(GB)':<14}")
+print("-" * 60)
+for name, cfg in models.items():
+    total = estimate_total_params(cfg)
+    if total:
+        # 粗略：MoE专家用expert_dtype，其他用weight_dtype
+        # 这里简单按平均算，不精确
+        avg_bytes = (cfg["expert_dtype_bytes"] + cfg["weight_dtype_bytes"]) / 2
+        mem_gb = total * avg_bytes / (1024**3)
+        dtype_exp = f"fp{int(cfg['expert_dtype_bytes']*8)}" if cfg["expert_dtype_bytes"] < 1 else f"fp{int(cfg['expert_dtype_bytes']*8)}"
+        dtype_w = f"fp{int(cfg['weight_dtype_bytes']*8)}"
+        print(f"{name:<20} {dtype_exp:<10} {dtype_w:<10} {mem_gb:<14.1f}")
+    else:
+        print(f"{name:<20} {'未公开':<10} {'未公开':<10} {'未公开':<14}")
+print()
+
+# 每层结构对比
+print("--- 每层关键结构对比 ---")
+print(f"{'项':<22} {'DeepSeek-V4':<18} {'MiniMax-M3':<18} {'GLM-5.2':<18}")
+print("-" * 75)
+items = [
+    ("hidden_size", "hidden_size"),
+    ("层数", "num_layers"),
+    ("注意力头数", "num_heads"),
+    ("head_dim", "head_dim"),
+    ("KV头数", "num_kv_heads"),
+    ("专家数", "num_experts"),
+    ("激活专家数", "active_experts"),
+    ("共享专家", "shared_experts"),
+    ("专家中间维", "expert_intermediate"),
+]
+for label, key in items:
+    row = f"{label:<22}"
+    for name in ["DeepSeek-V4-Pro", "MiniMax-M3", "GLM-5.2"]:
+        v = models[name][key]
+        row += f" {str(v):<17}"
+    print(row)
+print()
