@@ -1,0 +1,84 @@
+model:
+  name_or_path: Qwen/Qwen2.5-Math-1.5B-Instruct
+  trust_remote_code: false
+  precision: bfloat16          # bfloat16, float16, or float32
+  attn_implementation: sdpa
+  quantization: 4bit           # 4bit or none
+
+lora:
+  enabled: true
+  r: 32
+  alpha: 64
+  dropout: 0.05
+  bias: none
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+
+data:
+  dataset_name: openai/gsm8k
+  dataset_config: main
+  train_split: train
+  eval_split: null             # null creates a held-out split from train
+  validation_fraction: 0.05
+  question_column: question
+  answer_column: answer
+  max_train_samples: null
+  max_eval_samples: 256
+  seed: 42
+  system_prompt: |-
+    You are a careful mathematical reasoner. Solve the problem step by step.
+    Return exactly this structure:
+    <reasoning>your derivation</reasoning>
+    <answer>final answer only</answer>
+
+rewards:
+  correctness: 1.0
+  strict_format: 0.15
+  reasoning_quality: 0.05
+  repetition_penalty: 0.05
+
+trainer:
+  output_dir: outputs/qwen25-math-1.5b-grpo
+  num_train_epochs: 1
+  max_steps: -1
+  learning_rate: 5.0e-6
+  lr_scheduler_type: cosine
+  warmup_steps: 0.1          # float in Transformers 5: fraction of total steps
+  weight_decay: 0.0
+  per_device_train_batch_size: 1
+  per_device_eval_batch_size: 1
+  gradient_accumulation_steps: 8
+  gradient_checkpointing: true
+  gradient_checkpointing_kwargs:
+    use_reentrant: false
+  max_grad_norm: 1.0
+  num_generations: 4
+  num_generations_eval: 1
+  max_completion_length: 384
+  temperature: 0.9
+  top_p: 0.95
+  repetition_penalty: 1.05
+  beta: 0.001
+  loss_type: dr_grpo
+  scale_rewards: batch
+  mask_truncated_completions: true
+  optim: adamw_torch_fused
+  logging_steps: 5
+  logging_first_step: true
+  log_completions: true
+  num_completions_to_print: 2
+  eval_strategy: steps
+  eval_steps: 100
+  save_strategy: steps
+  save_steps: 100
+  save_total_limit: 2
+  report_to: none
+  seed: 42
+  data_seed: 42
+  use_vllm: false
